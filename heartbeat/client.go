@@ -23,8 +23,13 @@ func SendHeartbeat() string {
 		DeviceID: deviceID,
 	})
 
+	host := os.Getenv("BACKEND_HOST")
+	if host == "" {
+		host = "192.168.12.82:8080"
+	}
+
 	resp, err := http.Post(
-		"http://localhost:8080/api/heartbeat",
+		fmt.Sprintf("http://%s/api/heartbeat", host),
 		"application/json",
 		bytes.NewBuffer(body),
 	)

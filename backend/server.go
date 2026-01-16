@@ -72,7 +72,12 @@ func main() {
 		fmt.Fprintf(w, "Current Action: %s", currentAction)
 	})
 
-	log.Println("Mock Backend listening on :8080")
-	log.Println("Usage: curl http://localhost:8080/admin/set?action=WARNING")
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	// 5. /ping
+	http.HandleFunc("/ping", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("pong"))
+	})
+
+	log.Println("Mock Backend listening on :8080 (accessible on network)")
+	log.Fatal(http.ListenAndServe("0.0.0.0:8080", nil))
 }

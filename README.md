@@ -29,7 +29,7 @@ go run backend/server.go
 
 ### 2. Start the Agent
 ```powershell
-go run main.go
+BACKEND_HOST="192.168.12.82:8080" go run main.go
 ```
 
 ### 3. Control Policy
