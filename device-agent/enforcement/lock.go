@@ -8,104 +8,144 @@ import (
 	"regexp"
 	"strings"
 	"time"
-
-	"device-agent/heartbeat"
 )
 
 /*
-FLOW:
-1. Ensure BitLocker is enabled
-2. Wait until encryption = 100%
-3. Ensure Protection = ON
-4. Ensure exactly one recovery key exists
-5. Send recovery key to backend
-6. Force recovery
-7. Reboot
+UNIFIED LOCK FLOW (ALL WINDOWS EDITIONS)
+
+1. Detect Windows edition
+2. If Home → enable BitLocker policy via registry
+3. Enable BitLocker if needed
+4. Wait for encryption
+5. Ensure protection ON
+6. Ensure recovery key exists
+7. Attempt BitLocker forced recovery
+8. If BitLocker fails → soft lock fallback
 */
 
-func ForceBitLockerRecovery() {
-	log.Println("[LOCK] Starting automated BitLocker lockdown sequence")
+func EnforceDeviceLock() {
+	log.Println("[LOCK] Starting unified device lock flow")
 
-	// STEP 1 — Ensure BitLocker is ON
-	if !isBitLockerEnabled() {
-		log.Println("[LOCK] BitLocker not enabled — enabling now")
+	edition := detectWindowsEdition()
+	log.Println("[LOCK] Detected Windows edition:", edition)
+
+	if edition == "Home" {
+		log.Println("[LOCK] Windows Home detected — enabling BitLocker policy (No TPM)")
+		enableHomeBitLockerPolicy()
+	}
+
+	if err := attemptHardLock(); err != nil {
+		log.Println("[LOCK] Hard lock failed:", err)
+		log.Println("[LOCK] Falling back to soft lock")
+		softLock()
+	}
+}
+
+//
+// ---------------- HARD LOCK ATTEMPT ----------------
+//
+
+func attemptHardLock() error {
+	if !isBitLockerPresent() {
+		return errors.New("manage-bde not available")
+	}
+
+	if !isEncryptionComplete() {
+		log.Println("[LOCK] BitLocker not fully encrypted — enabling/enforcing")
 		if err := enableBitLocker(); err != nil {
-			log.Println("[FATAL] Failed to enable BitLocker:", err)
-			return
+			return err
+		}
+		if err := waitForEncryption(); err != nil {
+			return err
 		}
 	}
 
-	// STEP 2 — Wait for encryption to complete
-	log.Println("[LOCK] Waiting for encryption to reach 100%")
-	if err := waitForEncryption(); err != nil {
-		log.Println("[FATAL] Encryption did not complete:", err)
-		return
-	}
-
-	// STEP 3 — Ensure protection is ON
 	if !isProtectionOn() {
-		log.Println("[LOCK] Protection is OFF — enabling protectors")
-		if err := enableProtection(); err != nil {
-			log.Println("[FATAL] Failed to enable protection:", err)
-			return
-		}
+		log.Println("[LOCK] Enabling BitLocker protectors")
+		run("manage-bde", "-protectors", "-enable", "C:")
 	}
 
-	// STEP 4 — Ensure exactly ONE recovery key
-	log.Println("[LOCK] Ensuring exactly one recovery key exists")
-	key, err := ensureSingleRecoveryKey()
+	_, err := ensureSingleRecoveryKey()
 	if err != nil {
-		log.Println("[FATAL] Recovery key handling failed:", err)
-		return
+		return err
 	}
 
-	// STEP 5 — Send key to backend
-	log.Println("[LOCK] Sending recovery key to backend")
-	if err := heartbeat.SendRecoveryKey(key); err != nil {
-		log.Println("[FATAL] Backend did not confirm key receipt — aborting lock")
-		return
-	}
-
-	// STEP 6 — Force recovery
 	log.Println("[LOCK] Forcing BitLocker recovery")
-	exec.Command("manage-bde", "-forcerecovery", "C:").Run()
+	out := run("manage-bde", "-forcerecovery", "C:")
 
-	// STEP 7 — Reboot
-	log.Println("[LOCK] Rebooting system now")
-	exec.Command("shutdown", "/r", "/t", "0").Run()
-}
-
-//
-// ----------------- Helper Functions -----------------
-//
-
-func isBitLockerEnabled() bool {
-	out := run("manage-bde", "-status", "C:")
-	return strings.Contains(out, "Conversion Status") &&
-		!strings.Contains(out, "Fully Decrypted")
-}
-
-func enableBitLocker() error {
-	cmd := exec.Command("manage-bde", "-on", "C:", "-RecoveryPassword")
-	return cmd.Run()
-}
-
-func waitForEncryption() error {
-	timeout := time.After(60 * time.Minute)
-	ticker := time.Tick(10 * time.Second)
-
-	for {
-		select {
-		case <-timeout:
-			return errors.New("encryption timeout exceeded")
-		case <-ticker:
-			out := run("manage-bde", "-status", "C:")
-			if strings.Contains(out, "Percentage Encrypted: 100%") {
-				log.Println("[LOCK] Encryption complete")
-				return nil
-			}
-		}
+	if strings.Contains(strings.ToLower(out), "error") {
+		return errors.New("forcerecovery command failed")
 	}
+
+	log.Println("[LOCK] Rebooting system")
+	run("shutdown", "/r", "/t", "0")
+
+	return nil
+}
+
+//
+// ---------------- WINDOWS HOME POLICY ----------------
+//
+
+func enableHomeBitLockerPolicy() {
+	run(
+		"reg", "add",
+		"HKLM\\SOFTWARE\\Policies\\Microsoft\\FVE",
+		"/v", "EnableBDEWithNoTPM",
+		"/t", "REG_DWORD",
+		"/d", "1",
+		"/f",
+	)
+}
+
+//
+// ---------------- SOFT LOCK (SAFE FALLBACK) ----------------
+//
+
+func softLock() {
+	log.Println("[LOCK] Applying soft lock")
+
+	run("rundll32.exe", "user32.dll,LockWorkStation")
+
+	run("powershell", "-NoProfile", "-Command",
+		`Get-LocalUser | Where-Object {$_.Enabled -eq $true -and $_.Name -ne "Administrator"} | Disable-LocalUser`,
+	)
+
+	run("powershell", "-NoProfile", "-Command",
+		`Get-NetAdapter | Where-Object {$_.Status -eq "Up"} | Disable-NetAdapter -Confirm:$false`,
+	)
+}
+
+//
+// ---------------- OS DETECTION ----------------
+//
+
+func detectWindowsEdition() string {
+	out := run("cmd", "/c", "wmic os get Caption")
+	switch {
+	case strings.Contains(out, "Enterprise"):
+		return "Enterprise"
+	case strings.Contains(out, "Pro"):
+		return "Pro"
+	case strings.Contains(out, "Home"):
+		return "Home"
+	default:
+		return "Unknown"
+	}
+}
+
+//
+// ---------------- BITLOCKER HELPERS ----------------
+//
+
+func isBitLockerPresent() bool {
+	out := run("where", "manage-bde")
+	return strings.Contains(out, "manage-bde")
+}
+
+func isEncryptionComplete() bool {
+	out := run("manage-bde", "-status", "C:")
+	return strings.Contains(out, "Percentage Encrypted: 100%")
 }
 
 func isProtectionOn() bool {
@@ -113,55 +153,58 @@ func isProtectionOn() bool {
 	return strings.Contains(out, "Protection Status: Protection On")
 }
 
-func enableProtection() error {
-	cmd := exec.Command("manage-bde", "-protectors", "-enable", "C:")
-	return cmd.Run()
+func enableBitLocker() error {
+	out := run("manage-bde", "-on", "C:", "-RecoveryPassword")
+	if strings.Contains(strings.ToLower(out), "error") {
+		return errors.New("BitLocker enable failed")
+	}
+	return nil
+}
+
+func waitForEncryption() error {
+	timeout := time.After(60 * time.Minute)
+	ticker := time.Tick(15 * time.Second)
+
+	for {
+		select {
+		case <-timeout:
+			return errors.New("encryption timeout")
+		case <-ticker:
+			if isEncryptionComplete() {
+				return nil
+			}
+		}
+	}
 }
 
 func ensureSingleRecoveryKey() (string, error) {
 	out := run("manage-bde", "-protectors", "-get", "C:")
-
 	re := regexp.MustCompile(`(\d{6}-){7}\d{6}`)
 	keys := re.FindAllString(out, -1)
 
-	// If none exist → create one
 	if len(keys) == 0 {
-		log.Println("[LOCK] No recovery key found — creating one")
 		out = run("manage-bde", "-protectors", "-add", "C:", "-RecoveryPassword")
 		keys = re.FindAllString(out, -1)
 	}
 
 	if len(keys) == 0 {
-		return "", errors.New("failed to generate recovery key")
-	}
-
-	// If more than one → delete extras
-	if len(keys) > 1 {
-		log.Println("[LOCK] Multiple recovery keys detected — cleaning up")
-		deleteExtraProtectors()
+		return "", errors.New("no recovery key available")
 	}
 
 	return keys[0], nil
 }
 
-func deleteExtraProtectors() {
-	out := run("manage-bde", "-protectors", "-get", "C:")
-
-	idRe := regexp.MustCompile(`ID:\s*{[^}]+}`)
-	ids := idRe.FindAllString(out, -1)
-
-	// Keep the first, delete the rest
-	for i := 1; i < len(ids); i++ {
-		id := strings.TrimPrefix(ids[i], "ID: ")
-		exec.Command("manage-bde", "-protectors", "-delete", "C:", "-id", id).Run()
-	}
-}
+//
+// ---------------- COMMAND EXEC ----------------
+//
 
 func run(cmd string, args ...string) string {
 	c := exec.Command(cmd, args...)
-	var buf bytes.Buffer
-	c.Stdout = &buf
-	c.Stderr = &buf
-	_ = c.Run()
-	return buf.String()
+	var stdout, stderr bytes.Buffer
+	c.Stdout = &stdout
+	c.Stderr = &stderr
+	if err := c.Run(); err != nil {
+		log.Printf("[CMD] %s %v failed: %v (%s)", cmd, args, err, stderr.String())
+	}
+	return stdout.String() + stderr.String()
 }
