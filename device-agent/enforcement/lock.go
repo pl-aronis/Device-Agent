@@ -11,24 +11,29 @@ import (
 )
 
 /*
-BITLOCKER-ONLY ENFORCEMENT FLOW (ALL WINDOWS EDITIONS)
+BITLOCKER-ONLY ENFORCEMENT FLOW (NON-DESTRUCTIVE)
 
-NO SOFT LOCKS
-NO FALLBACK LOCKS
+CHANGES FROM PREVIOUS VERSION:
+- DO NOT delete existing protectors
+- ADD our own recovery protector if none exists
+- RETRY enabling protection until it flips ON
+- HANDLE BitLocker async behavior correctly
 
 FLOW:
 1. Detect Windows edition
-2. If Home → enable No-TPM BitLocker policy
-3. Verify manage-bde exists
-4. Ensure BitLocker encryption is enabled
-5. Wait until encryption reaches 100%
-6. Ensure protection is ON
-7. Ensure exactly one recovery key exists
-8. Force BitLocker recovery
-9. Reboot
-
-If ANY step fails → log + abort
+2. If Home → enable No-TPM policy (best-effort)
+3. Verify manage-bde.exe is usable
+4. Ensure encryption
+5. Ensure at least one recovery protector exists
+6. Enable protection (retry window)
+7. Verify protection ON
+8. Print recovery key
+9. Sleep 5 minutes
+10. Force recovery
+11. Reboot
 */
+
+const manageBDE = `C:\Windows\Sysnative\manage-bde.exe`
 
 func EnforceDeviceLock() {
 	log.Println("========== DEVICE LOCK START ==========")
@@ -42,65 +47,55 @@ func EnforceDeviceLock() {
 		enableHomeBitLockerPolicy()
 	}
 
-	log.Println("[INFO] Verifying BitLocker availability")
-	if !isBitLockerPresent() {
-		log.Println("[FATAL] manage-bde not found — BitLocker unavailable on this system")
+	log.Println("[INFO] Verifying BitLocker CLI availability")
+	if !isBitLockerCLIExecutable() {
+		log.Println("[FATAL] BitLocker CLI unavailable")
 		log.Println("[ABORT] Device lock aborted")
 		return
 	}
 
-	log.Println("[INFO] Checking BitLocker encryption state")
-	if !isEncryptionComplete() {
-		log.Println("[INFO] Drive not fully encrypted — enabling BitLocker")
-		if err := enableBitLocker(); err != nil {
-			log.Println("[FATAL] Failed to enable BitLocker:", err)
-			log.Println("[ABORT] Device lock aborted")
-			return
-		}
-
-		log.Println("[INFO] Waiting for encryption to reach 100%")
-		if err := waitForEncryption(); err != nil {
-			log.Println("[FATAL] Encryption did not complete:", err)
-			log.Println("[ABORT] Device lock aborted")
+	if !isEncrypted() {
+		log.Println("[INFO] Enabling BitLocker encryption")
+		if err := enableEncryption(); err != nil {
+			log.Println("[FATAL] Failed to enable encryption:", err)
 			return
 		}
 	}
 
-	log.Println("[INFO] Encryption verified at 100%")
-
-	log.Println("[INFO] Verifying BitLocker protection status")
-	if !isProtectionOn() {
-		log.Println("[INFO] Protection is OFF — enabling protectors")
-		if err := enableProtection(); err != nil {
-			log.Println("[FATAL] Failed to enable protection:", err)
-			log.Println("[ABORT] Device lock aborted")
-			return
-		}
+	log.Println("[INFO] Waiting for encryption to complete")
+	if err := waitForEncryption(); err != nil {
+		log.Println("[FATAL]", err)
+		return
 	}
 
-	log.Println("[INFO] BitLocker protection is ON")
-
-	log.Println("[INFO] Ensuring exactly one recovery key exists")
-	key, err := ensureSingleRecoveryKey()
+	log.Println("[INFO] Ensuring recovery protector exists")
+	key, err := ensureRecoveryProtector()
 	if err != nil {
-		log.Println("[FATAL] Recovery key validation failed:", err)
-		log.Println("[ABORT] Device lock aborted")
+		log.Println("[FATAL] Failed to ensure recovery protector:", err)
 		return
 	}
 
-	log.Printf("[INFO] Recovery key confirmed: %s\n", maskKey(key))
+	log.Println("[INFO] Enabling BitLocker protection")
+	if err := enableProtectionWithRetry(); err != nil {
+		log.Println("[FATAL]", err)
+		return
+	}
+
+	log.Println("=================================================")
+	log.Println("[RECOVERY KEY — SAVE THIS NOW]")
+	log.Println(key)
+	log.Println("=================================================")
+
+	log.Println("[INFO] Sleeping for 5 minutes before enforcing lock")
+	time.Sleep(5 * time.Minute)
 
 	log.Println("[ACTION] Forcing BitLocker recovery")
-	out := run("manage-bde", "-forcerecovery", "C:")
-	log.Println("[CMD OUTPUT]", out)
-
-	if containsError(out) {
-		log.Println("[FATAL] BitLocker refused forced recovery")
-		log.Println("[ABORT] Device lock aborted")
+	if _, err := run(manageBDE, "-forcerecovery", "C:"); err != nil {
+		log.Println("[FATAL] Failed to force recovery:", err)
 		return
 	}
 
-	log.Println("[ACTION] Rebooting system now")
+	log.Println("[ACTION] Rebooting system")
 	run("shutdown", "/r", "/t", "0")
 
 	log.Println("========== DEVICE LOCK TRIGGERED ==========")
@@ -111,15 +106,15 @@ func EnforceDeviceLock() {
 //
 
 func enableHomeBitLockerPolicy() {
-	out := run(
-		"reg", "add",
-		"HKLM\\SOFTWARE\\Policies\\Microsoft\\FVE",
+	run(
+		"reg",
+		"add",
+		`HKLM\SOFTWARE\Policies\Microsoft\FVE`,
 		"/v", "EnableBDEWithNoTPM",
 		"/t", "REG_DWORD",
 		"/d", "1",
 		"/f",
 	)
-	log.Println("[REGISTRY] EnableBDEWithNoTPM applied:", out)
 }
 
 //
@@ -127,13 +122,22 @@ func enableHomeBitLockerPolicy() {
 //
 
 func detectWindowsEdition() string {
-	out := run("cmd", "/c", "wmic os get Caption")
+	out, err := run(
+		"reg",
+		"query",
+		`HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion`,
+		"/v", "EditionID",
+	)
+	if err != nil {
+		return "Unknown"
+	}
+
 	switch {
 	case strings.Contains(out, "Enterprise"):
 		return "Enterprise"
-	case strings.Contains(out, "Pro"):
+	case strings.Contains(out, "Professional"):
 		return "Pro"
-	case strings.Contains(out, "Home"):
+	case strings.Contains(out, "Core"):
 		return "Home"
 	default:
 		return "Unknown"
@@ -141,38 +145,22 @@ func detectWindowsEdition() string {
 }
 
 //
-// ---------------- BITLOCKER HELPERS ----------------
+// ---------------- BITLOCKER CORE ----------------
 //
 
-func isBitLockerPresent() bool {
-	out := run("where", "manage-bde")
-	return strings.Contains(out, "manage-bde")
+func isBitLockerCLIExecutable() bool {
+	_, err := run(manageBDE, "-status")
+	return err == nil
 }
 
-func isEncryptionComplete() bool {
-	out := run("manage-bde", "-status", "C:")
-	return strings.Contains(out, "Percentage Encrypted: 100%")
+func isEncrypted() bool {
+	out, err := run(manageBDE, "-status", "C:")
+	return err == nil && !strings.Contains(out, "Fully Decrypted")
 }
 
-func isProtectionOn() bool {
-	out := run("manage-bde", "-status", "C:")
-	return strings.Contains(out, "Protection Status: Protection On")
-}
-
-func enableBitLocker() error {
-	out := run("manage-bde", "-on", "C:", "-RecoveryPassword")
-	if containsError(out) {
-		return errors.New("manage-bde -on failed")
-	}
-	return nil
-}
-
-func enableProtection() error {
-	out := run("manage-bde", "-protectors", "-enable", "C:")
-	if containsError(out) {
-		return errors.New("failed to enable BitLocker protectors")
-	}
-	return nil
+func enableEncryption() error {
+	_, err := run(manageBDE, "-on", "C:", "-RecoveryPassword")
+	return err
 }
 
 func waitForEncryption() error {
@@ -184,42 +172,87 @@ func waitForEncryption() error {
 		case <-timeout:
 			return errors.New("encryption timeout exceeded")
 		case <-ticker:
-			out := run("manage-bde", "-status", "C:")
-			log.Println("[STATUS]", strings.TrimSpace(out))
-			if strings.Contains(out, "Percentage Encrypted: 100%") {
+			out, err := run(manageBDE, "-status", "C:")
+			if err == nil && strings.Contains(out, "Percentage Encrypted: 100") {
+				log.Println("[INFO] Encryption complete")
 				return nil
 			}
 		}
 	}
 }
 
-func ensureSingleRecoveryKey() (string, error) {
-	out := run("manage-bde", "-protectors", "-get", "C:")
-	re := regexp.MustCompile(`(\d{6}-){7}\d{6}`)
-	keys := re.FindAllString(out, -1)
+//
+// ---------------- PROTECTOR HANDLING ----------------
+//
 
-	if len(keys) == 0 {
-		log.Println("[INFO] No recovery key found — generating one")
-		out = run("manage-bde", "-protectors", "-add", "C:", "-RecoveryPassword")
-		keys = re.FindAllString(out, -1)
+func ensureRecoveryProtector() (string, error) {
+	out, err := run(manageBDE, "-protectors", "-get", "C:")
+	if err != nil {
+		return "", err
 	}
 
-	if len(keys) == 0 {
-		return "", errors.New("no recovery key available after generation")
+	keyRe := regexp.MustCompile(`(\d{6}-){7}\d{6}`)
+	keys := keyRe.FindAllString(out, -1)
+
+	if len(keys) > 0 {
+		log.Println("[INFO] Existing recovery protector found")
+		return keys[0], nil
 	}
 
-	if len(keys) > 1 {
-		log.Printf("[WARN] Multiple recovery keys detected (%d). Using first.\n", len(keys))
+	log.Println("[INFO] No recovery protector found — creating one")
+	out, err = run(manageBDE, "-protectors", "-add", "C:", "-RecoveryPassword")
+	if err != nil {
+		return "", err
 	}
 
-	return keys[0], nil
+	key := keyRe.FindString(out)
+	if key == "" {
+		return "", errors.New("failed to extract recovery key")
+	}
+
+	return key, nil
+}
+
+func enableProtectionWithRetry() error {
+	log.Println("[INFO] Attempting to enable BitLocker protection (single attempt)")
+	_ = runWithFullLogging(manageBDE, "-protectors", "-enable", "C:")
+
+	timeout := time.After(2 * time.Minute)
+	ticker := time.Tick(5 * time.Second)
+
+	for {
+		select {
+		case <-timeout:
+			return errors.New("protection did not turn ON (status parsing mismatch)")
+		case <-ticker:
+			out, err := run(manageBDE, "-status", "C:")
+			if err != nil {
+				continue
+			}
+
+			// 🔧 NORMALIZE OUTPUT (THIS IS THE FIX)
+			n := strings.ToLower(out)
+			n = strings.ReplaceAll(n, "\t", " ")
+			n = strings.Join(strings.Fields(n), " ")
+
+			log.Println("[DEBUG] Normalized BitLocker status:")
+			log.Println(n)
+
+			if strings.Contains(n, "protection status: protection on") {
+				log.Println("[INFO] Protection is ON (verified)")
+				return nil
+			}
+
+			log.Println("[INFO] Waiting for protection to turn ON")
+		}
+	}
 }
 
 //
-// ---------------- UTILITIES ----------------
+// ---------------- COMMAND EXEC ----------------
 //
 
-func run(cmd string, args ...string) string {
+func run(cmd string, args ...string) (string, error) {
 	c := exec.Command(cmd, args...)
 	var stdout, stderr bytes.Buffer
 	c.Stdout = &stdout
@@ -227,24 +260,40 @@ func run(cmd string, args ...string) string {
 	err := c.Run()
 
 	if err != nil {
-		log.Printf("[CMD ERROR] %s %v → %v\n", cmd, args, err)
+		if stderr.Len() > 0 {
+			log.Printf("[STDERR] %s\n", stderr.String())
+		}
+		return "", err
+	}
+
+	return stdout.String(), nil
+}
+
+func runWithFullLogging(cmd string, args ...string) error {
+	log.Println("[CMD] Executing:", cmd, strings.Join(args, " "))
+
+	c := exec.Command(cmd, args...)
+	var stdout, stderr bytes.Buffer
+	c.Stdout = &stdout
+	c.Stderr = &stderr
+
+	err := c.Run()
+
+	log.Println("[CMD] Exit error:", err)
+
+	if stdout.Len() > 0 {
+		log.Println("[CMD] STDOUT:")
+		log.Println(strings.TrimSpace(stdout.String()))
+	} else {
+		log.Println("[CMD] STDOUT: <empty>")
 	}
 
 	if stderr.Len() > 0 {
-		log.Printf("[STDERR] %s\n", stderr.String())
+		log.Println("[CMD] STDERR:")
+		log.Println(strings.TrimSpace(stderr.String()))
+	} else {
+		log.Println("[CMD] STDERR: <empty>")
 	}
 
-	return stdout.String() + stderr.String()
-}
-
-func containsError(out string) bool {
-	l := strings.ToLower(out)
-	return strings.Contains(l, "error") || strings.Contains(l, "failed")
-}
-
-func maskKey(k string) string {
-	if len(k) < 10 {
-		return "INVALID"
-	}
-	return k[:6] + "-******-******-******-******-******"
+	return err
 }
