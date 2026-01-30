@@ -1,1 +1,29 @@
-[]
+[
+  {
+    "id": "aa1b47b32ce0b563",
+    "status": "ACTIVE",
+    "recovery_key": "7ebb050346662c77ffb454796fd1d034",
+    "mac_id": "",
+    "location": "",
+    "os_details": "",
+    "last_seen": "2026-01-30T13:50:54.5254643+05:30"
+  },
+  {
+    "id": "be3421899164d622",
+    "status": "LOCK",
+    "recovery_key": "6fa07af3af1ee4b811986918f7cc9138",
+    "mac_id": "08:00:27:04:57:92",
+    "location": "plabade-windows",
+    "os_details": "Microsoft Windows [Version 10.0.26200.6584]",
+    "last_seen": "2026-01-30T13:53:14.2086442+05:30"
+  },
+  {
+    "id": "958f1af724e6a99f",
+    "status": "LOCK",
+    "recovery_key": "f37c8dde5a2e553cba686d375205e72b",
+    "mac_id": "08:00:27:04:57:92",
+    "location": "plabade-windows",
+    "os_details": "Microsoft Windows [Version 10.0.26200.6584]",
+    "last_seen": "2026-01-30T14:02:43.4610298+05:30"
+  }
+]

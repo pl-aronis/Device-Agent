@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -81,7 +82,16 @@ func (bc *BackendClient) Register() error {
 	body, _ := json.Marshal(req)
 	url := fmt.Sprintf("%s/api/register", bc.BackendURL)
 
-	resp, err := http.Post(url, "application/json", bytes.NewBuffer(body))
+	// Create request manually to ensure body is properly sent
+	httpReq, err := http.NewRequest("POST", url, bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Content-Length", fmt.Sprintf("%d", len(body)))
+
+	client := &http.Client{}
+	resp, err := client.Do(httpReq)
 	if err != nil {
 		return fmt.Errorf("registration request failed: %w", err)
 	}
@@ -113,10 +123,25 @@ func (bc *BackendClient) SendHeartbeat() (string, error) {
 		DeviceID: bc.DeviceID,
 	}
 
-	body, _ := json.Marshal(req)
+	body, err := json.Marshal(req)
+	if err != nil {
+		log.Printf("[HEARTBEAT] JSON marshal error: %v", err)
+		return "NONE", err
+	}
+	log.Printf("[HEARTBEAT] Sending body: %s", string(body))
 	url := fmt.Sprintf("%s/api/heartbeat", bc.BackendURL)
 
-	resp, err := http.Post(url, "application/json", bytes.NewBuffer(body))
+	// Create request manually to ensure body is properly sent
+	httpReq, err := http.NewRequest("POST", url, bytes.NewReader(body))
+	if err != nil {
+		log.Printf("[HEARTBEAT] Failed to create request: %v", err)
+		return "NONE", err
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.ContentLength = int64(len(body))
+
+	client := &http.Client{}
+	resp, err := client.Do(httpReq)
 	if err != nil {
 		log.Printf("[HEARTBEAT] Request failed: %v", err)
 		return "NONE", err
@@ -124,6 +149,8 @@ func (bc *BackendClient) SendHeartbeat() (string, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		log.Printf("[HEARTBEAT] Got status %d: %s", resp.StatusCode, string(respBody))
 		return "NONE", fmt.Errorf("heartbeat returned status %d", resp.StatusCode)
 	}
 

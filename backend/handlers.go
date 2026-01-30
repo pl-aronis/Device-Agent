@@ -46,17 +46,42 @@ func registerHandler(s *Storage) http.HandlerFunc {
 
 func heartbeatHandler(s *Storage) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+
+		// Read body to check if it's empty
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			log.Printf("[HEARTBEAT] Error reading body: %v", err)
+			http.Error(w, "failed to read body: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		log.Printf("[HEARTBEAT] Raw body: %q (length: %d)", string(body), len(body))
+
+		if len(body) == 0 {
+			log.Printf("[HEARTBEAT] ERROR: Empty request body received")
+			http.Error(w, "empty request body", http.StatusBadRequest)
+			return
+		}
+
 		var req HeartbeatReq
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "invalid heartbeat payload", http.StatusBadRequest)
+		if err := json.Unmarshal(body, &req); err != nil {
+			log.Printf("[HEARTBEAT] Decode error: %v", err)
+			http.Error(w, "invalid heartbeat payload: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		if req.DeviceID == "" {
+			log.Printf("[HEARTBEAT] Empty device ID in request")
+			http.Error(w, "device_id cannot be empty", http.StatusBadRequest)
 			return
 		}
 		d, ok := s.Heartbeat(req.DeviceID)
 		if !ok {
+			log.Printf("[HEARTBEAT] Device not found: %s", req.DeviceID)
 			http.Error(w, "unknown device", http.StatusNotFound)
 			return
 		}
 		log.Printf("Heartbeat from %s - status=%s", d.ID, d.Status)
+		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(HeartbeatResp{Action: d.Status})
 	}
 }

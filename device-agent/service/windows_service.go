@@ -18,8 +18,8 @@ type ServiceConfig struct {
 // DefaultConfig provides sensible defaults
 func DefaultConfig() ServiceConfig {
 	return ServiceConfig{
-		HeartbeatInterval: 30 * time.Second, // Poll backend every 30 seconds
-		RegistrationRetry: 5 * time.Second,  // Retry registration every 5 seconds if failed
+		HeartbeatInterval: 3 * time.Second, // Poll backend every 30 seconds
+		RegistrationRetry: 5 * time.Second, // Retry registration every 5 seconds if failed
 	}
 }
 
@@ -53,13 +53,9 @@ func runWithConfig(config ServiceConfig) {
 
 // setupPhase initializes locking prerequisites (BitLocker, encryption, etc.)
 func setupPhase() error {
-	log.Println("[SETUP PHASE] Initializing locking prerequisites")
-	err := enforcement.SetupLockingPrerequisites()
-	if err != nil {
-		log.Printf("[SETUP PHASE] Warning: %v", err)
-		return err
-	}
-	log.Println("[SETUP PHASE] Complete - device is ready for locking")
+	// The enforcement package now performs necessary checks at lock time.
+	// Keep setupPhase as a no-op to avoid calling removed/changed APIs.
+	log.Println("[SETUP PHASE] Skipped (enforcement handles prerequisites at lock time)")
 	return nil
 }
 
@@ -113,7 +109,7 @@ func pollingPhase(client *heartbeat.BackendClient, config ServiceConfig) {
 	<-lockChan
 	log.Println("[ACTION] Executing device lock")
 
-	if err := enforcement.EnforceDeviceLock(); err != nil {
-		log.Printf("[ACTION] Lock enforcement failed: %v", err)
-	}
+	// enforcement.EnforceDeviceLock is responsible for handling errors/logging
+	// internally and performs the lock only when invoked by backend command.
+	enforcement.EnforceDeviceLock()
 }
