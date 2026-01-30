@@ -4,32 +4,206 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"log"
+	"net"
 	"net/http"
 	"os"
+	"os/exec"
+	"strings"
+	"time"
 )
 
-type Heartbeat struct {
+// Registration request/response types
+type RegisterRequest struct {
+	DeviceID  string `json:"device_id,omitempty"`
+	MacID     string `json:"mac_id"`
+	Location  string `json:"location"`
+	OSDetails string `json:"os_details"`
+}
+
+type RegisterResponse struct {
+	DeviceID    string `json:"device_id"`
+	Status      string `json:"status"`
+	RecoveryKey string `json:"recovery_key"`
+}
+
+// Heartbeat request/response types
+type HeartbeatRequest struct {
 	DeviceID string `json:"device_id"`
 }
 
-type Response struct {
+type HeartbeatResponse struct {
 	Action string `json:"action"`
 }
+
+// BackendClient handles all backend communication
+type BackendClient struct {
+	BackendURL  string
+	DeviceID    string
+	RecoveryKey string
+}
+
+// GetBackendURL retrieves backend URL from environment or uses default
+func GetBackendURL() string {
+	host := os.Getenv("BACKEND_HOST")
+	if host == "" {
+		host = "http://localhost:8080"
+	}
+	// Ensure it has http:// prefix
+	if !strings.HasPrefix(host, "http://") && !strings.HasPrefix(host, "https://") {
+		host = "http://" + host
+	}
+	return host
+}
+
+// NewBackendClient creates a new backend client
+func NewBackendClient() *BackendClient {
+	return &BackendClient{
+		BackendURL: GetBackendURL(),
+	}
+}
+
+// Register registers the device with the backend
+func (bc *BackendClient) Register() error {
+	log.Println("[HEARTBEAT] Registering device with backend")
+
+	macID, _ := getMACAddress()
+	hostname, _ := os.Hostname()
+	osDetails := getOSDetails()
+	location := hostname // Use hostname as default location
+
+	req := RegisterRequest{
+		MacID:     macID,
+		Location:  location,
+		OSDetails: osDetails,
+	}
+
+	body, _ := json.Marshal(req)
+	url := fmt.Sprintf("%s/api/register", bc.BackendURL)
+
+	resp, err := http.Post(url, "application/json", bytes.NewBuffer(body))
+	if err != nil {
+		return fmt.Errorf("registration request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("registration failed with status %d", resp.StatusCode)
+	}
+
+	var regResp RegisterResponse
+	if err := json.NewDecoder(resp.Body).Decode(&regResp); err != nil {
+		return fmt.Errorf("failed to decode registration response: %w", err)
+	}
+
+	bc.DeviceID = regResp.DeviceID
+	bc.RecoveryKey = regResp.RecoveryKey
+
+	log.Printf("[HEARTBEAT] Registration successful - Device ID: %s", bc.DeviceID)
+	return nil
+}
+
+// SendHeartbeat sends a heartbeat to the backend and returns the action
+func (bc *BackendClient) SendHeartbeat() (string, error) {
+	if bc.DeviceID == "" {
+		return "NONE", fmt.Errorf("device not registered")
+	}
+
+	req := HeartbeatRequest{
+		DeviceID: bc.DeviceID,
+	}
+
+	body, _ := json.Marshal(req)
+	url := fmt.Sprintf("%s/api/heartbeat", bc.BackendURL)
+
+	resp, err := http.Post(url, "application/json", bytes.NewBuffer(body))
+	if err != nil {
+		log.Printf("[HEARTBEAT] Request failed: %v", err)
+		return "NONE", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "NONE", fmt.Errorf("heartbeat returned status %d", resp.StatusCode)
+	}
+
+	var hbResp HeartbeatResponse
+	if err := json.NewDecoder(resp.Body).Decode(&hbResp); err != nil {
+		return "NONE", err
+	}
+
+	log.Printf("[HEARTBEAT] Action from backend: %s", hbResp.Action)
+	return hbResp.Action, nil
+}
+
+// PollBackendWithHeartbeat continuously polls the backend at specified intervals
+func (bc *BackendClient) PollBackendWithHeartbeat(interval time.Duration, actionCallback func(string)) {
+	log.Printf("[HEARTBEAT] Starting heartbeat poll every %v", interval)
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		action, err := bc.SendHeartbeat()
+		if err != nil {
+			log.Printf("[HEARTBEAT] Poll error: %v", err)
+			continue
+		}
+
+		if action != "NONE" && action != "ACTIVE" {
+			log.Printf("[HEARTBEAT] Backend action: %s", action)
+			actionCallback(action)
+		}
+	}
+}
+
+// Helper functions
+
+// getMACAddress retrieves the MAC address of the primary network interface
+func getMACAddress() (string, error) {
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		return "", err
+	}
+
+	for _, iface := range interfaces {
+		// Skip loopback and down interfaces
+		if (iface.Flags&net.FlagLoopback) != 0 || (iface.Flags&net.FlagUp) == 0 {
+			continue
+		}
+
+		// Get MAC address
+		if len(iface.HardwareAddr) > 0 {
+			return iface.HardwareAddr.String(), nil
+		}
+	}
+
+	return "unknown", nil
+}
+
+// getOSDetails retrieves Windows OS details
+func getOSDetails() string {
+	cmd := exec.Command("cmd", "/C", "ver")
+	output, err := cmd.Output()
+	if err != nil {
+		return "Windows (unknown version)"
+	}
+	return strings.TrimSpace(string(output))
+}
+
+// Legacy functions for compatibility
 
 func SendHeartbeat() string {
 	deviceID := os.Getenv("COMPUTERNAME")
 
-	body, _ := json.Marshal(Heartbeat{
+	body, _ := json.Marshal(HeartbeatRequest{
 		DeviceID: deviceID,
 	})
 
-	host := os.Getenv("BACKEND_HOST")
-	if host == "" {
-		host = "192.168.1.124:8080"
-	}
+	host := GetBackendURL()
 
 	resp, err := http.Post(
-		fmt.Sprintf("http://%s/api/heartbeat", host),
+		fmt.Sprintf("%s/api/heartbeat", host),
 		"application/json",
 		bytes.NewBuffer(body),
 	)
@@ -40,7 +214,7 @@ func SendHeartbeat() string {
 	}
 	defer resp.Body.Close()
 
-	var r Response
+	var r HeartbeatResponse
 	json.NewDecoder(resp.Body).Decode(&r)
 
 	return r.Action
@@ -55,7 +229,7 @@ func SendRecoveryKey(key string) error {
 	body, _ := json.Marshal(payload)
 
 	resp, err := http.Post(
-		"http://localhost:8080/api/key",
+		fmt.Sprintf("%s/api/key", GetBackendURL()),
 		"application/json",
 		bytes.NewBuffer(body),
 	)
