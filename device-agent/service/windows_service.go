@@ -109,7 +109,6 @@ func pollingPhase(client *heartbeat.BackendClient, config ServiceConfig) {
 			log.Printf("[POLLING PHASE] Unknown action: %s", action)
 		}
 	})
-
 	// Wait for lock signal
 	<-lockChan
 	log.Println("[ACTION] Executing device lock")
