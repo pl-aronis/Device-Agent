@@ -86,7 +86,11 @@ func pollingPhase(client *heartbeat.BackendClient, config ServiceConfig) {
 	var mu sync.Mutex
 	lockRequested := false
 
-	// Start the polling goroutine
+	// Start the polling goroutine. When a LOCK action is received the
+	// callback will perform the locking synchronously. This blocks the
+	// heartbeat loop (so no further heartbeats are sent) until the lock
+	// operation completes. After locking finishes the callback signals
+	// completion on lockChan so the main goroutine can continue.
 	go client.PollBackendWithHeartbeat(config.HeartbeatInterval, func(action string) {
 		mu.Lock()
 		defer mu.Unlock()
@@ -96,6 +100,11 @@ func pollingPhase(client *heartbeat.BackendClient, config ServiceConfig) {
 			if !lockRequested {
 				lockRequested = true
 				log.Println("[POLLING PHASE] Backend command received: LOCK")
+
+				// Perform lock synchronously here to pause further heartbeats
+				enforcement.EnforceDeviceLock()
+
+				// Signal completion to the main goroutine
 				lockChan <- struct{}{}
 			}
 		case "ACTIVE":
@@ -105,11 +114,8 @@ func pollingPhase(client *heartbeat.BackendClient, config ServiceConfig) {
 			log.Printf("[POLLING PHASE] Unknown action: %s", action)
 		}
 	})
-	// Wait for lock signal
-	<-lockChan
-	log.Println("[ACTION] Executing device lock")
 
-	// enforcement.EnforceDeviceLock is responsible for handling errors/logging
-	// internally and performs the lock only when invoked by backend command.
-	enforcement.EnforceDeviceLock()
+	// Wait for lock to complete (signaled by the callback)
+	<-lockChan
+	log.Println("[ACTION] Device lock completed")
 }
