@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>PayloadContent</key>
+    <array>
+        <!-- MDM Payload -->
+        <dict>
+            <key>PayloadType</key>
+            <string>com.apple.mdm</string>
+            <key>PayloadIdentifier</key>
+            <string>com.example.mdm.profile</string>
+            <key>PayloadUUID</key>
+            <string>A0F0D8E9-1234-5678-9ABC-DEF012345678</string>
+            <key>PayloadVersion</key>
+            <integer>1</integer>
+            <key>ServerURL</key>
+            <string>https://REPLACE_WITH_YOUR_HOST/mdm/connect</string>
+            <key>CheckInURL</key>
+            <string>https://REPLACE_WITH_YOUR_HOST/mdm/checkin</string>
+            <key>AccessRights</key>
+            <integer>8191</integer> <!-- Full access -->
+            <key>Topic</key>
+            <string>com.apple.mgmt.External.REPLACE_WITH_UUID</string>
+            <key>SignMessage</key>
+            <true/>
+            <key>CheckOutWhenRemoved</key>
+            <true/>
+        </dict>
+    </array>
+    <key>PayloadDisplayName</key>
+    <string>Custom Device Agent Enrollment</string>
+    <key>PayloadIdentifier</key>
+    <string>com.example.mdm</string>
+    <key>PayloadOrganization</key>
+    <string>Device Agent Org</string>
+    <key>PayloadType</key>
+    <string>Configuration</string>
+    <key>PayloadUUID</key>
+    <string>B1E2D3C4-5678-9012-3456-789012345678</string>
+    <key>PayloadVersion</key>
+    <integer>1</integer>
+</dict>
+</plist>
