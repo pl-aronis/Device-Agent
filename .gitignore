@@ -8,7 +8,6 @@
 *.dylib
 *.test
 *.out
-*.bin
 
 # Vendor
 vendor/
@@ -35,7 +34,6 @@ yarn-debug.log*
 yarn-error.log*
 
 # Backend
-bin/
 data/devices.json
 
 # Logs

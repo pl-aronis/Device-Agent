@@ -25,7 +25,7 @@ func SendHeartbeat() string {
 
 	host := os.Getenv("BACKEND_HOST")
 	if host == "" {
-		host = "192.168.1.124:8080"
+		host = "192.168.1.11:8080"
 	}
 
 	resp, err := http.Post(
