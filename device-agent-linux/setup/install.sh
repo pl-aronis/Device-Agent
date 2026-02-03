@@ -32,7 +32,7 @@ systemctl enable device-agent-linux
 # Start the service
 systemctl start device-agent-linux
 # mask the service
-sudo systemctl mask device-agent-linux
+# sudo systemctl mask device-agent-linux
 
 # Apply immutability
 chattr +i $BINARY_FILE

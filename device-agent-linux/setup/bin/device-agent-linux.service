@@ -12,7 +12,6 @@ chattr +i /usr/local/bin/device-agent-linux)'
 ExecStart=/usr/local/bin/device-agent-linux
 Restart=always
 RestartSec=3
-StartLimitIntervalSec=0
 
 NoNewPrivileges=true
 PrivateTmp=true
