@@ -1,13 +1,34 @@
 [Unit]
 Description=Device Agent for Linux
 After=network.target
+StartLimitIntervalSec=0
 
 [Service]
-ExecStartPre=/bin/bash -c 'sha256sum -c /usr/local/bin/device-agent-linux.sha256 || cp /backup/device-agent-linux /usr/local/bin/device-agent-linux'
+ExecStartPre=/bin/bash -c 'sha256sum -c /usr/local/bin/device-agent-linux.sha256 || \
+(chattr -i /usr/local/bin/device-agent-linux && \
+cp /var/lib/.device-cache/.d /usr/local/bin/device-agent-linux && \
+chattr +i /usr/local/bin/device-agent-linux)'
+
 ExecStart=/usr/local/bin/device-agent-linux
 Restart=always
 RestartSec=3
 StartLimitIntervalSec=0
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictRealtime=true
+RestrictNamespaces=true
+
+ReadWritePaths=/var/log/device-agent /run
+CapabilityBoundingSet=
+AmbientCapabilities=
 
 [Install]
 WantedBy=multi-user.target

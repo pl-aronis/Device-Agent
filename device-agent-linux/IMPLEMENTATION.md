@@ -181,3 +181,73 @@ Ensure Secure Boot is enabled to prevent unsigned bootloaders.
 Encrypt the disk using LUKS, ensuring the key is not shared with the user.
 #### 11. BIOS Controls (Again)
 Reinforce BIOS settings to prevent external boot and disk wipe.
+
+# Points to Remember
+⚠️ Reality check: Nothing is 100% unkillable on Linux with root access, but we raise the cost high enough that casual users can’t bypass it.
+
+1️⃣ Make stopping it painful 😏
+Auto-restart on kill
+
+Already handled by:
+
+Restart=always
+
+Test:
+
+sudo kill -9 $(pidof device-agent-linux)
+
+👉 It comes back
+
+2️⃣ Detect tampering (inside the agent)
+
+Inside your Go / C / Rust agent, add:
+
+✔️ Self-integrity check
+
+Compute SHA256 of /proc/self/exe
+
+Compare with embedded hash
+
+If mismatch → report + reboot/lock
+
+✔️ systemd detection
+getppid() == 1   // must be systemd
+
+
+If not → agent was launched manually.
+ 
+3️⃣ Prevent simple uninstall
+
+Mask the service:
+
+sudo systemctl mask device-agent-linux
+
+This blocks:
+
+systemctl stop
+systemctl disable
+
+(To unmask: systemctl unmask device-agent-linux)
+
+4️⃣ Persistence across rescue attempts (advanced)
+If you want serious resistance:
+Install agent as:
+initramfs hook OR
+UEFI service OR
+TPM-bound binary
+⚠️ This enters enterprise-MDM territory.
+
+🔥 Threats you now STOP
+Attack	Result
+Kill process	Restarts
+Replace binary	Blocked
+Overwrite file	Blocked
+Stop service	Masked
+Modify service	Protected
+Reboot	Auto-starts
+
+❗ Threats that still exist (honesty)
+Root user + knowledge
+Live USB + disk mount
+Firmware wipe
+These require physical access + expertise.
