@@ -16,6 +16,8 @@ sudo cp bin/device-agent-linux $BACKUP_DIR/device-agent-linux
 sudo chown root:root /usr/local/bin/device-agent-linux
 sudo chmod 755 /usr/local/bin/device-agent-linux
 
+sha256sum -c /usr/local/bin/device-agent-linux | sudo tee /usr/local/bin/device-agent-linux.
+
 # Protect the checksum file too
 sudo chown root:root /usr/local/bin/device-agent-linux.sha256
 sudo chmod 644 /usr/local/bin/device-agent-linux.sha256
