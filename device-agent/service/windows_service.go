@@ -19,7 +19,7 @@ type ServiceConfig struct {
 func DefaultConfig() ServiceConfig {
 	return ServiceConfig{
 		HeartbeatInterval: 3 * time.Second, // Poll backend every 30 seconds
-		RegistrationRetry: 5 * time.Second, // Retry registration every 5 seconds if failed
+		RegistrationRetry: 5 * time.Second,  // Retry registration every 5 seconds if failed
 	}
 }
 
@@ -33,13 +33,7 @@ func Run() {
 func runWithConfig(config ServiceConfig) {
 	log.Println("========== DEVICE AGENT SERVICE START ==========")
 
-	// Step 1: Setup locking prerequisites
-	if err := setupPhase(); err != nil {
-		log.Printf("[FATAL] Setup phase failed: %v", err)
-		// Continue anyway - device might still be able to lock later
-	}
-
-	// Step 2: Register with backend
+	// Step 1: Register with backend
 	backendClient := heartbeat.NewBackendClient()
 	if err := registerPhase(backendClient, config); err != nil {
 		log.Printf("[FATAL] Registration failed: %v", err)
@@ -47,16 +41,8 @@ func runWithConfig(config ServiceConfig) {
 		return
 	}
 
-	// Step 3: Start polling backend with heartbeat
+	// Step 2: Start polling backend with heartbeat
 	pollingPhase(backendClient, config)
-}
-
-// setupPhase initializes locking prerequisites (BitLocker, encryption, etc.)
-func setupPhase() error {
-	// The enforcement package now performs necessary checks at lock time.
-	// Keep setupPhase as a no-op to avoid calling removed/changed APIs.
-	log.Println("[SETUP PHASE] Skipped (enforcement handles prerequisites at lock time)")
-	return nil
 }
 
 // registerPhase attempts to register the device with the backend
@@ -102,7 +88,15 @@ func pollingPhase(client *heartbeat.BackendClient, config ServiceConfig) {
 				log.Println("[POLLING PHASE] Backend command received: LOCK")
 
 				// Perform lock synchronously here to pause further heartbeats
-				enforcement.EnforceDeviceLock()
+				recoveryProtector, err := enforcement.EnforceDeviceLock()
+				if err != nil {
+					log.Printf("[ERROR] Device lock failed: %v", err)
+				} else if recoveryProtector != nil {
+					// Send the recovery key to the backend
+					if err := client.SendRecoveryKey(recoveryProtector.Key); err != nil {
+						log.Printf("[ERROR] Failed to send recovery key to backend: %v", err)
+					}
+				}
 
 				// Signal completion to the main goroutine
 				lockChan <- struct{}{}

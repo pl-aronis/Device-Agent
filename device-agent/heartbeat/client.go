@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-// Registration request/response types
+// RegisterRequest represents a device registration request
 type RegisterRequest struct {
 	DeviceID  string `json:"device_id,omitempty"`
 	MacID     string `json:"mac_id"`
@@ -22,19 +22,33 @@ type RegisterRequest struct {
 	OSDetails string `json:"os_details"`
 }
 
+// RegisterResponse represents a device registration response
 type RegisterResponse struct {
 	DeviceID    string `json:"device_id"`
 	Status      string `json:"status"`
 	RecoveryKey string `json:"recovery_key"`
 }
 
-// Heartbeat request/response types
+// HeartbeatRequest represents a heartbeat request
 type HeartbeatRequest struct {
 	DeviceID string `json:"device_id"`
 }
 
+// HeartbeatResponse represents a heartbeat response
 type HeartbeatResponse struct {
 	Action string `json:"action"`
+}
+
+// RecoveryKeyRequest represents a recovery key submission request
+type RecoveryKeyRequest struct {
+	DeviceID    string `json:"device_id"`
+	RecoveryKey string `json:"recovery_key"`
+}
+
+// RecoveryKeyResponse represents a recovery key submission response
+type RecoveryKeyResponse struct {
+	Status  string `json:"status"`
+	Message string `json:"message"`
 }
 
 // BackendClient handles all backend communication
@@ -163,7 +177,49 @@ func (bc *BackendClient) SendHeartbeat() (string, error) {
 	return hbResp.Action, nil
 }
 
-// PollBackendWithHeartbeat continuously polls the backend at specified intervals
+// SendRecoveryKey sends the recovery key to the backend
+func (bc *BackendClient) SendRecoveryKey(recoveryKey string) error {
+	if bc.DeviceID == "" {
+		return fmt.Errorf("device not registered")
+	}
+
+	req := RecoveryKeyRequest{
+		DeviceID:    bc.DeviceID,
+		RecoveryKey: recoveryKey,
+	}
+
+	body, err := json.Marshal(req)
+	if err != nil {
+		return fmt.Errorf("failed to marshal recovery key request: %w", err)
+	}
+
+	url := fmt.Sprintf("%s/api/recovery-key", bc.BackendURL)
+	httpReq, err := http.NewRequest("POST", url, bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("failed to create recovery key request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("recovery key request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("recovery key submission failed with status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var keyResp RecoveryKeyResponse
+	if err := json.NewDecoder(resp.Body).Decode(&keyResp); err != nil {
+		return fmt.Errorf("failed to decode recovery key response: %w", err)
+	}
+
+	log.Printf("[HEARTBEAT] Recovery key submitted successfully: %s", keyResp.Message)
+	return nil
+}
 func (bc *BackendClient) PollBackendWithHeartbeat(interval time.Duration, actionCallback func(string)) {
 	log.Printf("[HEARTBEAT] Starting heartbeat poll every %v", interval)
 
@@ -247,7 +303,8 @@ func SendHeartbeat() string {
 	return r.Action
 }
 
-func SendRecoveryKey(key string) error {
+// SendRecoveryKeyLegacy legacy function for compatibility
+func SendRecoveryKeyLegacy(key string) error {
 	deviceID := os.Getenv("COMPUTERNAME")
 	payload := map[string]string{
 		"device_id":    deviceID,
@@ -256,7 +313,7 @@ func SendRecoveryKey(key string) error {
 	body, _ := json.Marshal(payload)
 
 	resp, err := http.Post(
-		fmt.Sprintf("%s/api/key", GetBackendURL()),
+		fmt.Sprintf("%s/api/recovery-key", GetBackendURL()),
 		"application/json",
 		bytes.NewBuffer(body),
 	)
