@@ -2,6 +2,7 @@ package service
 
 import (
 	"log"
+	"os/exec"
 	"sync"
 	"time"
 
@@ -19,7 +20,7 @@ type ServiceConfig struct {
 func DefaultConfig() ServiceConfig {
 	return ServiceConfig{
 		HeartbeatInterval: 3 * time.Second, // Poll backend every 30 seconds
-		RegistrationRetry: 5 * time.Second,  // Retry registration every 5 seconds if failed
+		RegistrationRetry: 5 * time.Second, // Retry registration every 5 seconds if failed
 	}
 }
 
@@ -91,12 +92,43 @@ func pollingPhase(client *heartbeat.BackendClient, config ServiceConfig) {
 				recoveryProtector, err := enforcement.EnforceDeviceLock()
 				if err != nil {
 					log.Printf("[ERROR] Device lock failed: %v", err)
-				} else if recoveryProtector != nil {
-					// Send the recovery key to the backend
-					if err := client.SendRecoveryKey(recoveryProtector.Key); err != nil {
-						log.Printf("[ERROR] Failed to send recovery key to backend: %v", err)
-					}
+					lockChan <- struct{}{}
+					return
 				}
+
+				if recoveryProtector == nil {
+					log.Println("[ERROR] Recovery protector is nil")
+					lockChan <- struct{}{}
+					return
+				}
+
+				// Step 1: Send the recovery key to the backend
+				log.Println("[HEARTBEAT-1] Sending recovery key to backend...")
+				if err := client.SendRecoveryKey(recoveryProtector.Key); err != nil {
+					log.Printf("[ERROR] Failed to send recovery key to backend: %v", err)
+					lockChan <- struct{}{}
+					return
+				}
+				log.Println("[HEARTBEAT-1] Recovery key sent successfully")
+
+				// Small delay to ensure backend processes the key
+				time.Sleep(1 * time.Second)
+
+				// Step 2: Send confirmation heartbeat that everything is successful
+				log.Println("[HEARTBEAT-2] Sending final success heartbeat...")
+				if _, err := client.SendHeartbeat(); err != nil {
+					log.Printf("[ERROR] Failed to send success heartbeat: %v", err)
+					lockChan <- struct{}{}
+					return
+				}
+				log.Println("[HEARTBEAT-2] Success heartbeat sent")
+
+				// Small delay before reboot
+				time.Sleep(2 * time.Second)
+
+				// Step 3: Restart the machine
+				log.Println("[REBOOT] Initiating system restart in 10 seconds...")
+				enforceSystemRestart()
 
 				// Signal completion to the main goroutine
 				lockChan <- struct{}{}
@@ -111,5 +143,28 @@ func pollingPhase(client *heartbeat.BackendClient, config ServiceConfig) {
 
 	// Wait for lock to complete (signaled by the callback)
 	<-lockChan
-	log.Println("[ACTION] Device lock completed")
+	log.Println("[ACTION] Device lock completed - waiting for system restart...")
+
+	// Keep the service running during restart sequence
+	select {}
+}
+
+// enforceSystemRestart initiates a system restart
+func enforceSystemRestart() {
+	// Use os/exec to run the shutdown command
+	// This will restart the machine after a 10-second delay
+	cmd := exec.Command("shutdown", "/r", "/t", "10", "/c", "Device locked and security measures applied. System will restart.")
+
+	log.Println("[REBOOT] Executing system restart with 10-second delay...")
+
+	if err := cmd.Start(); err != nil {
+		log.Printf("[ERROR] Failed to initiate restart: %v", err)
+		// Fallback: try alternative method
+		cmd2 := exec.Command("cmd", "/C", "shutdown /r /t 10")
+		if err := cmd2.Start(); err != nil {
+			log.Printf("[ERROR] Fallback restart also failed: %v", err)
+		}
+	} else {
+		log.Println("[REBOOT] System restart command issued successfully")
+	}
 }

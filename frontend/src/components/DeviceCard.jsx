@@ -1,15 +1,20 @@
 import { useState } from 'react'
 import './DeviceCard.css'
 
-function DeviceCard({ device, onLock, onUnlock }) {
+function DeviceCard({ device, onLock, onUnlock, isLocking }) {
   const [showRecoveryKey, setShowRecoveryKey] = useState(false)
   const isLocked = device.status === 'LOCK'
+  const hasRecoveryKey = device.recovery_key && device.recovery_key.trim() !== ''
 
   const handleToggleLock = () => {
     if (isLocked) {
       onUnlock(device.id)
-      // Show recovery key modal/display
-      setTimeout(() => setShowRecoveryKey(true), 300)
+      // Show recovery key modal/display if available
+      setTimeout(() => {
+        if (hasRecoveryKey) {
+          setShowRecoveryKey(true)
+        }
+      }, 500)
     } else {
       onLock(device.id)
       setShowRecoveryKey(false)
@@ -49,21 +54,47 @@ function DeviceCard({ device, onLock, onUnlock }) {
               : 'Never'}
           </span>
         </div>
+
+        {hasRecoveryKey && !isLocked && (
+          <div className="detail-item recovery-status">
+            <span className="label">🔑 Recovery Key:</span>
+            <span className="value">Stored on device</span>
+          </div>
+        )}
       </div>
 
       <div className="device-actions">
         <button
-          className={`btn ${isLocked ? 'btn-unlock' : 'btn-lock'}`}
+          className={`btn ${isLocked ? 'btn-unlock' : 'btn-lock'} ${isLocking ? 'btn-locking' : ''}`}
           onClick={handleToggleLock}
+          disabled={isLocking}
         >
-          {isLocked ? '🔓 Unlock Device' : '🔒 Lock Device'}
+          {isLocking ? (
+            <>
+              <span className="spinner"></span>
+              🔒 Locking & Securing...
+            </>
+          ) : isLocked ? (
+            '🔓 Unlock Device'
+          ) : (
+            '🔒 Lock Device'
+          )}
         </button>
+
+        {hasRecoveryKey && !isLocked && (
+          <button
+            className="btn btn-secondary"
+            onClick={() => setShowRecoveryKey(!showRecoveryKey)}
+          >
+            {showRecoveryKey ? '🔑 Hide Key' : '🔑 Show Key'}
+          </button>
+        )}
       </div>
 
-      {showRecoveryKey && device.recovery_key && (
+      {showRecoveryKey && hasRecoveryKey && (
         <div className="recovery-key-section">
           <div className="recovery-header">
-            <h3>🔑 Recovery Key</h3>
+            <h3>🔑 BitLocker Recovery Key</h3>
             <button
               className="close-btn"
               onClick={() => setShowRecoveryKey(false)}
@@ -72,7 +103,7 @@ function DeviceCard({ device, onLock, onUnlock }) {
             </button>
           </div>
           <div className="recovery-content">
-            <p className="recovery-label">Share this key with the user:</p>
+            <p className="recovery-label">Share this key with the user for device recovery:</p>
             <div className="recovery-key-box">
               <code>{device.recovery_key}</code>
               <button
@@ -85,6 +116,9 @@ function DeviceCard({ device, onLock, onUnlock }) {
                 📋 Copy
               </button>
             </div>
+            <p className="recovery-note">
+              ⓘ This key was automatically captured when the device was locked and enforced BitLocker encryption.
+            </p>
           </div>
         </div>
       )}

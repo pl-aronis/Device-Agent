@@ -117,7 +117,7 @@ func RecoveryKeyHandler(store storage.Store) http.HandlerFunc {
 			return
 		}
 
-		device, ok := store.UpdateRecoveryKey(req.DeviceID, req.RecoveryKey)
+		_, ok := store.UpdateRecoveryKey(req.DeviceID, req.RecoveryKey)
 		if !ok {
 			log.Printf("[API] RecoveryKey: device not found: %s", req.DeviceID)
 			http.Error(w, "device not found", http.StatusNotFound)
