@@ -2,10 +2,10 @@ package heartbeat
 
 import (
 	"bytes"
+	"device-agent-linux/registration"
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
 )
 
 type Heartbeat struct {
@@ -16,20 +16,16 @@ type Response struct {
 	Action string `json:"action"`
 }
 
-func SendHeartbeat() string {
-	deviceID := os.Getenv("HOSTNAME")
+func SendHeartbeat(ip string, port string) string {
+	// Use registered device ID
+	deviceID := registration.GetDeviceID()
 
 	body, _ := json.Marshal(Heartbeat{
 		DeviceID: deviceID,
 	})
 
-	host := os.Getenv("BACKEND_HOST")
-	if host == "" {
-		host = "192.168.1.11:8080"
-	}
-
 	resp, err := http.Post(
-		fmt.Sprintf("http://%s/api/heartbeat", host),
+		fmt.Sprintf("http://%s:%s/api/heartbeat", ip, port),
 		"application/json",
 		bytes.NewBuffer(body),
 	)

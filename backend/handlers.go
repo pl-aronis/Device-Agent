@@ -12,6 +12,7 @@ type RegisterReq struct {
 	MacID     string `json:"mac_id"`
 	Location  string `json:"location"`
 	OSDetails string `json:"os_details"`
+	BIOSPass  string `json:"bios_pass,omitempty"`
 }
 
 type RegisterResp struct {
@@ -35,7 +36,7 @@ func registerHandler(s *Storage) http.HandlerFunc {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		d, err := s.Register(req.DeviceID, req.MacID, req.Location, req.OSDetails)
+		d, err := s.Register(req.DeviceID, req.MacID, req.Location, req.OSDetails, req.BIOSPass)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return

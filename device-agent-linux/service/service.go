@@ -1,7 +1,6 @@
 package service
 
 import (
-	"io/ioutil"
 	"log"
 	"os"
 	"os/exec"
@@ -28,7 +27,7 @@ func configureFirewall(backendIP string) {
 }
 
 func cacheLockCommand() {
-	ioutil.WriteFile(LockCacheFile, []byte("LOCK"), 0644)
+	os.WriteFile(LockCacheFile, []byte("LOCK"), 0644)
 }
 
 func isLockCached() bool {
@@ -38,21 +37,23 @@ func isLockCached() bool {
 	return false
 }
 
-func Run() {
+func Run(ip string, port string) {
 	lastSuccessfulHeartbeat := time.Now()
 
 	for {
-		action := heartbeat.SendHeartbeat()
+		action := heartbeat.SendHeartbeat(ip, port)
 
-		if action == "LOCK" {
+		switch action {
+		case "LOCK":
 			log.Println("Policy violation → locking device")
 			cacheLockCommand()
+			configureFirewall(ip)
 			enforcement.LockDevice()
-		} else if action == "WARNING" {
+		case "WARNING":
 			log.Println("Policy warning → displaying alert")
 			// TODO
 			// enforcement.ShowWarning()
-		} else if action == "NONE" {
+		case "NONE":
 			lastSuccessfulHeartbeat = time.Now()
 		}
 

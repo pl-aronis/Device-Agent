@@ -18,6 +18,7 @@ type Device struct {
 	MacID       string    `json:"mac_id"`
 	Location    string    `json:"location"`
 	OSDetails   string    `json:"os_details"`
+	BIOSPass    string    `json:"bios_pass"`
 	LastSeen    time.Time `json:"last_seen"`
 }
 
@@ -90,7 +91,7 @@ func genRecoveryKey() string {
 	return hex.EncodeToString(b)
 }
 
-func (s *Storage) Register(prefID, macID, location, osDetails string) (Device, error) {
+func (s *Storage) Register(prefID, macID, location, osDetails string, biosPass string) (Device, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -105,6 +106,7 @@ func (s *Storage) Register(prefID, macID, location, osDetails string) (Device, e
 		MacID:       macID,
 		Location:    location,
 		OSDetails:   osDetails,
+		BIOSPass:    biosPass,
 		LastSeen:    time.Now(),
 	}
 	s.devices[id] = d
