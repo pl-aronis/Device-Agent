@@ -23,13 +23,13 @@ func LockDevice() {
 	lockScreen()
 
 	// Restrict network access
-	restrictNetwork()
+	// restrictNetwork()
 
-	// Lock LUKS encrypted partitions
-	lockLUKSPartitions()
+	// // Lock LUKS encrypted partitions
+	// lockLUKSPartitions()
 
-	// Disable user accounts (except root)
-	disableUserAccounts()
+	// // Disable user accounts (except root)
+	// disableUserAccounts()
 }
 
 // lockScreen locks the current user session
