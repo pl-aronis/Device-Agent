@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+	<dict>
+		<key>PayloadContent</key>
+		<array>
+			<dict>
+				<key>PayloadContent</key>
+				<dict>
+					<key>Key Type</key>
+					<string>RSA</string>
+					<key>Key Usage</key>
+					<integer>5</integer>
+					<key>Keysize</key>
+					<integer>2048</integer>
+					<key>Name</key>
+					<string>MDM-SCEP</string>
+					<key>Subject</key>
+					<array>
+						<array>
+							<string>CN</string>
+							<string>MDM Device Certificate</string>
+						</array>
+						<array>
+							<string>O</string>
+							<string>testing</string>
+						</array>
+					</array>
+					<key>URL</key>
+					<string>http://localhost:8080/scep/65871431-6d9a-4adc-83f7-53a37c35a82f</string>
+				</dict>
+				<key>PayloadDisplayName</key>
+				<string>MDM Identity Certificate</string>
+				<key>PayloadIdentifier</key>
+				<string>com.65871431-6d9a-4adc-83f7-53a37c35a82f.mdm.scep</string>
+				<key>PayloadType</key>
+				<string>com.apple.security.scep</string>
+				<key>PayloadUUID</key>
+				<string>beb3f5cf-8828-46f1-a6ff-8edf85ccdb90</string>
+				<key>PayloadVersion</key>
+				<integer>1</integer>
+			</dict>
+			<dict>
+				<key>AccessRights</key>
+				<integer>8191</integer>
+				<key>CheckInURL</key>
+				<string>http://localhost:8080/mdm/checkin</string>
+				<key>CheckOutWhenRemoved</key>
+				<true/>
+				<key>IdentityCertificateUUID</key>
+				<string>beb3f5cf-8828-46f1-a6ff-8edf85ccdb90</string>
+				<key>PayloadDisplayName</key>
+				<string>MDM Configuration</string>
+				<key>PayloadIdentifier</key>
+				<string>com.65871431-6d9a-4adc-83f7-53a37c35a82f.mdm.profile</string>
+				<key>PayloadType</key>
+				<string>com.apple.mdm</string>
+				<key>PayloadUUID</key>
+				<string>d75e8d84-5462-40bf-9395-1b137a4ebc63</string>
+				<key>PayloadVersion</key>
+				<integer>1</integer>
+				<key>ServerURL</key>
+				<string>http://localhost:8080/mdm/connect</string>
+				<key>SignMessage</key>
+				<true/>
+				<key>Topic</key>
+				<string/>
+			</dict>
+		</array>
+		<key>PayloadDescription</key>
+		<string>This profile enables device management by testing.</string>
+		<key>PayloadDisplayName</key>
+		<string>testing MDM Enrollment</string>
+		<key>PayloadIdentifier</key>
+		<string>com.65871431-6d9a-4adc-83f7-53a37c35a82f.mdm</string>
+		<key>PayloadOrganization</key>
+		<string>testing</string>
+		<key>PayloadType</key>
+		<string>Configuration</string>
+		<key>PayloadUUID</key>
+		<string>2c570ae6-94ee-4f01-9f28-da99bc5781af</string>
+		<key>PayloadVersion</key>
+		<integer>1</integer>
+	</dict>
+</plist>
