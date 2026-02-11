@@ -1,15 +1,21 @@
 package scep
 
 import (
+	"crypto"
+	"crypto/rand"
 	"crypto/x509"
 	"encoding/base64"
 	"fmt"
 	"io"
 	"log"
+	"math/big"
 	"net/http"
 	"strings"
+	"time"
 
 	"mdm-server/internal/store"
+
+	pkcs7 "go.mozilla.org/pkcs7"
 )
 
 // Handler handles SCEP protocol requests
@@ -107,8 +113,10 @@ func (h *Handler) getCA(tenantID string) (*CA, error) {
 	return ca, nil
 }
 
-// handleGetCACert returns the CA certificate
+// handleGetCACert returns the CA certificate(s)
 func (h *Handler) handleGetCACert(w http.ResponseWriter, r *http.Request, ca *CA) {
+	// Return the CA cert as DER
+	// If we had an RA cert, we'd return a degenerate PKCS#7 with both certs
 	w.Header().Set("Content-Type", "application/x-x509-ca-cert")
 	w.Write(ca.Certificate.Raw)
 }
@@ -118,16 +126,14 @@ func (h *Handler) handleGetCACaps(w http.ResponseWriter, r *http.Request) {
 	caps := []string{
 		"POSTPKIOperation",
 		"SHA-256",
-		"SHA-512",
 		"AES",
 		"SCEPStandard",
-		"Renewal",
 	}
 	w.Header().Set("Content-Type", "text/plain")
 	w.Write([]byte(strings.Join(caps, "\n")))
 }
 
-// handlePKIOperation handles certificate signing requests
+// handlePKIOperation handles certificate signing requests via PKCS#7
 func (h *Handler) handlePKIOperation(w http.ResponseWriter, r *http.Request, ca *CA, tenantID string) {
 	var message []byte
 	var err error
@@ -156,64 +162,167 @@ func (h *Handler) handlePKIOperation(w http.ResponseWriter, r *http.Request, ca 
 		return
 	}
 
-	// Process SCEP PKI message
-	// This is a simplified implementation - a full implementation would use the scep library
-	// to properly parse PKCS#7 SignedData and EnvelopedData
-
-	// For now, we'll handle the common case where the message contains a CSR
-	// In production, you'd use github.com/smallstep/scep/scep package
-
 	log.Printf("SCEP PKIOperation: received %d bytes from tenant %s", len(message), tenantID)
 
-	// Try to parse as a simple CSR (for testing/development)
-	// Production would use full PKCS#7 parsing
-	csr, err := h.extractCSRFromMessage(message)
+	// Parse the outer PKCS#7 SignedData envelope
+	p7, err := pkcs7.Parse(message)
 	if err != nil {
-		log.Printf("SCEP: failed to extract CSR: %v", err)
-		// For now, just return the CA cert as a response
-		// This allows devices to at least get the CA
-		w.Header().Set("Content-Type", "application/x-pki-message")
-		w.Write(ca.Certificate.Raw)
+		log.Printf("SCEP: failed to parse PKCS#7 SignedData: %v", err)
+		// Try as raw CSR (fallback for simple clients)
+		h.handleRawCSR(w, message, ca, tenantID)
+		return
+	}
+
+	// The content inside the SignedData is an EnvelopedData (encrypted for our CA)
+	envelopedData := p7.Content
+
+	// Parse the inner PKCS#7 EnvelopedData
+	p7env, err := pkcs7.Parse(envelopedData)
+	if err != nil {
+		log.Printf("SCEP: inner content is not EnvelopedData (%v), trying as CSR", err)
+		// Maybe the content is already a CSR
+		h.handleRawCSR(w, envelopedData, ca, tenantID)
+		return
+	}
+
+	// Decrypt the EnvelopedData using our CA certificate and key
+	decryptedContent, err := p7env.Decrypt(ca.Certificate, ca.PrivateKey)
+	if err != nil {
+		log.Printf("SCEP: failed to decrypt EnvelopedData: %v", err)
+		h.sendSCEPFailure(w, ca, p7)
+		return
+	}
+
+	log.Printf("SCEP: decrypted %d bytes of CSR data", len(decryptedContent))
+
+	// Parse the CSR from decrypted content
+	csr, err := x509.ParseCertificateRequest(decryptedContent)
+	if err != nil {
+		log.Printf("SCEP: failed to parse CSR from decrypted content: %v", err)
+		h.sendSCEPFailure(w, ca, p7)
+		return
+	}
+
+	// Validate CSR
+	if err := csr.CheckSignature(); err != nil {
+		log.Printf("SCEP: CSR signature invalid: %v", err)
+		h.sendSCEPFailure(w, ca, p7)
 		return
 	}
 
 	// Issue certificate
-	cert, certPEM, err := ca.IssueCertificate(csr, 365) // 1 year validity
+	cert, _, err := ca.IssueCertificate(csr, 365) // 1 year validity
+	if err != nil {
+		log.Printf("SCEP: failed to issue certificate: %v", err)
+		h.sendSCEPFailure(w, ca, p7)
+		return
+	}
+
+	log.Printf("SCEP: issued certificate for %s (serial: %s)", csr.Subject.CommonName, cert.SerialNumber)
+
+	// Build SCEP success response: SignedData containing the issued cert
+	h.sendSCEPSuccess(w, ca, cert, p7)
+}
+
+// handleRawCSR handles the case where the message is a raw CSR (not PKCS#7 wrapped)
+func (h *Handler) handleRawCSR(w http.ResponseWriter, message []byte, ca *CA, tenantID string) {
+	csr, err := x509.ParseCertificateRequest(message)
+	if err != nil {
+		log.Printf("SCEP: not a valid CSR either: %v", err)
+		http.Error(w, "Invalid SCEP message", http.StatusBadRequest)
+		return
+	}
+
+	cert, _, err := ca.IssueCertificate(csr, 365)
 	if err != nil {
 		log.Printf("SCEP: failed to issue certificate: %v", err)
 		http.Error(w, "Failed to issue certificate", http.StatusInternalServerError)
 		return
 	}
 
-	log.Printf("SCEP: issued certificate for %s (serial: %s)", csr.Subject.CommonName, cert.SerialNumber)
-	_ = certPEM // Would be stored in database
+	log.Printf("SCEP: issued certificate via raw CSR for %s (serial: %s)", csr.Subject.CommonName, cert.SerialNumber)
 
-	// Return signed certificate
-	// In production, this would be wrapped in PKCS#7 SignedData
-	w.Header().Set("Content-Type", "application/x-pki-message")
-	w.Write(cert.Raw)
-}
-
-// extractCSRFromMessage attempts to extract a CSR from a SCEP message
-// This is simplified - production would use full PKCS#7 parsing
-func (h *Handler) extractCSRFromMessage(message []byte) (*x509.CertificateRequest, error) {
-	// Try to parse directly as CSR (for testing)
-	csr, err := x509.ParseCertificateRequest(message)
-	if err == nil {
-		return csr, nil
+	// Return as degenerate PKCS#7
+	degenerateCerts, err := pkcs7.DegenerateCertificate(cert.Raw)
+	if err != nil {
+		log.Printf("SCEP: failed to create degenerate cert: %v", err)
+		w.Header().Set("Content-Type", "application/x-pki-message")
+		w.Write(cert.Raw)
+		return
 	}
 
-	// SCEP messages are typically PKCS#7 wrapped
-	// A full implementation would:
-	// 1. Parse outer PKCS#7 SignedData
-	// 2. Verify signature
-	// 3. Decrypt inner PKCS#7 EnvelopedData
-	// 4. Extract CSR from decrypted content
+	w.Header().Set("Content-Type", "application/x-pki-message")
+	w.Write(degenerateCerts)
+}
 
-	return nil, fmt.Errorf("could not extract CSR from SCEP message: %w", err)
+// sendSCEPSuccess builds a CertRep SUCCESS response
+func (h *Handler) sendSCEPSuccess(w http.ResponseWriter, ca *CA, issuedCert *x509.Certificate, requestP7 *pkcs7.PKCS7) {
+	// Create a degenerate PKCS#7 containing the issued cert + CA cert
+	// This is the "pki-message" response
+	degenerateCerts, err := pkcs7.DegenerateCertificate(issuedCert.Raw)
+	if err != nil {
+		log.Printf("SCEP: failed to create degenerate certificate: %v", err)
+		http.Error(w, "Internal error", http.StatusInternalServerError)
+		return
+	}
+
+	// Sign the response with our CA
+	signedResponse, err := signSCEPResponse(degenerateCerts, ca.Certificate, ca.PrivateKey)
+	if err != nil {
+		log.Printf("SCEP: failed to sign response: %v", err)
+		// Fallback: return degenerate cert directly
+		w.Header().Set("Content-Type", "application/x-pki-message")
+		w.Write(degenerateCerts)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/x-pki-message")
+	w.Write(signedResponse)
+}
+
+// sendSCEPFailure sends a SCEP failure response
+func (h *Handler) sendSCEPFailure(w http.ResponseWriter, ca *CA, requestP7 *pkcs7.PKCS7) {
+	// For now, just return a 500 - a proper implementation would return
+	// a PKCS#7 SignedData with pkiStatus=FAILURE
+	http.Error(w, "SCEP enrollment failed", http.StatusInternalServerError)
+}
+
+// signSCEPResponse signs data with the CA certificate
+func signSCEPResponse(content []byte, signerCert *x509.Certificate, signerKey crypto.PrivateKey) ([]byte, error) {
+	toBeSigned, err := pkcs7.NewSignedData(content)
+	if err != nil {
+		return nil, fmt.Errorf("create signed data: %w", err)
+	}
+
+	if err := toBeSigned.AddSigner(signerCert, signerKey, pkcs7.SignerInfoConfig{}); err != nil {
+		return nil, fmt.Errorf("add signer: %w", err)
+	}
+
+	signed, err := toBeSigned.Finish()
+	if err != nil {
+		return nil, fmt.Errorf("finish signing: %w", err)
+	}
+
+	return signed, nil
 }
 
 // InvalidateCache removes a tenant's CA from the cache
 func (h *Handler) InvalidateCache(tenantID string) {
 	delete(h.caCache, tenantID)
+}
+
+// issueSelfSignedCert creates a simple self-signed certificate (for testing when CSR parsing fails)
+func issueSelfSignedCert(ca *CA) (*x509.Certificate, error) {
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(time.Now().UnixNano()),
+		NotBefore:    time.Now(),
+		NotAfter:     time.Now().AddDate(1, 0, 0),
+	}
+
+	certDER, err := x509.CreateCertificate(rand.Reader, template, ca.Certificate, ca.Certificate.PublicKey, ca.PrivateKey)
+	if err != nil {
+		return nil, err
+	}
+
+	return x509.ParseCertificate(certDER)
 }

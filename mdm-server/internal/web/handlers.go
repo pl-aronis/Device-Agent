@@ -200,6 +200,9 @@ func (h *Handler) handleTenantDetail(w http.ResponseWriter, r *http.Request) {
 		case "apns":
 			h.handleTenantAPNs(w, r, tenant)
 			return
+		case "setup-ca":
+			h.handleSetupCA(w, r, tenant)
+			return
 		}
 	}
 
@@ -306,6 +309,30 @@ func (h *Handler) handleTenantAPNs(w http.ResponseWriter, r *http.Request, tenan
 	http.Redirect(w, r, "/admin/tenants/"+tenant.ID, http.StatusSeeOther)
 }
 
+// handleSetupCA auto-generates a SCEP CA for a tenant
+func (h *Handler) handleSetupCA(w http.ResponseWriter, r *http.Request, tenant *store.Tenant) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", 405)
+		return
+	}
+
+	// Generate new CA
+	ca, err := scep.NewCA(tenant.Name, 10) // 10 year validity
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to generate CA: %v", err), 500)
+		return
+	}
+
+	// Save to database
+	if err := h.tenantStore.UpdateCA(tenant.ID, ca.CertPEM, ca.KeyPEM); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to save CA: %v", err), 500)
+		return
+	}
+
+	log.Printf("SCEP CA generated for tenant %s", tenant.ID)
+	http.Redirect(w, r, "/admin/tenants/"+tenant.ID, http.StatusSeeOther)
+}
+
 // handleEnroll serves enrollment pages and profiles
 func (h *Handler) handleEnroll(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(r.URL.Path, "/")
@@ -332,6 +359,7 @@ func (h *Handler) handleEnroll(w http.ResponseWriter, r *http.Request) {
 		TenantID:   tenant.ID,
 		TenantName: tenant.Name,
 		ServerURL:  h.serverURL,
+		APNsTopic:  tenant.APNsTopic,
 	}
 
 	page, err := h.profileGen.GenerateEnrollmentPage(cfg)
@@ -495,32 +523,90 @@ body { font-family: -apple-system, sans-serif; margin: 0; padding: 20px; backgro
 .container { max-width: 1200px; margin: 0 auto; }
 h1 { color: #1d1d1f; }
 .card { background: white; border-radius: 12px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-.btn { display: inline-block; background: #0071e3; color: white; padding: 10px 20px; border-radius: 8px; text-decoration: none; margin-right: 10px; }
+.btn { display: inline-block; background: #0071e3; color: white; padding: 10px 20px; border-radius: 8px; text-decoration: none; margin-right: 10px; border: none; cursor: pointer; font-size: 14px; }
 .btn-secondary { background: #86868b; }
+.btn-green { background: #34c759; }
+.btn:hover { opacity: 0.9; }
 .status { display: inline-block; padding: 4px 8px; border-radius: 4px; font-size: 12px; }
 .status-ok { background: #d4edda; color: #155724; }
 .status-missing { background: #fff3cd; color: #856404; }
 table { width: 100%; border-collapse: collapse; }
 th, td { text-align: left; padding: 12px; border-bottom: 1px solid #e0e0e0; }
+label { display: block; margin-bottom: 5px; font-weight: 500; color: #1d1d1f; }
+input[type="text"], input[type="file"] { width: 100%; padding: 10px; margin-bottom: 12px; border: 1px solid #d2d2d7; border-radius: 8px; box-sizing: border-box; font-size: 14px; }
+.info-box { background: #e8f4fd; border: 1px solid #b6d4fe; border-radius: 8px; padding: 12px; margin: 10px 0; color: #084298; font-size: 13px; }
+.warn-box { background: #fff3cd; border: 1px solid #ffc107; border-radius: 8px; padding: 12px; margin: 10px 0; color: #856404; font-size: 13px; }
+.id-text { font-family: monospace; font-size: 12px; color: #86868b; }
 </style>
 </head><body>
 <div class="container">
 <p><a href="/admin/">← Dashboard</a></p>
 <h1>{{.Tenant.Name}}</h1>
+<p class="id-text">Tenant ID: {{.Tenant.ID}}</p>
+
 <div class="card">
-<h3>Configuration</h3>
-<p>Domain: <strong>{{.Tenant.Domain}}</strong></p>
-<p>SCEP CA: <span class="status {{if .HasCA}}status-ok">Configured{{else}}status-missing">Not configured{{end}}</span></p>
-<p>APNs: <span class="status {{if .HasAPNs}}status-ok">{{.Tenant.APNsTopic}}{{else}}status-missing">Not configured{{end}}</span></p>
+<h3>📋 Status</h3>
+<table>
+<tr><td><strong>Domain</strong></td><td>{{.Tenant.Domain}}</td></tr>
+<tr>
+  <td><strong>SCEP CA</strong></td>
+  <td><span class="status {{if .HasCA}}status-ok">✅ Configured{{else}}status-missing">⚠️ Not configured{{end}}</span></td>
+</tr>
+<tr>
+  <td><strong>APNs Push</strong></td>
+  <td><span class="status {{if .HasAPNs}}status-ok">✅ {{.Tenant.APNsTopic}}{{else}}status-missing">⚠️ Not configured{{end}}</span></td>
+</tr>
+</table>
 </div>
+
+{{if not .HasCA}}
 <div class="card">
-<h3>Enrollment</h3>
+<h3>🔐 Step 1: Set Up SCEP CA</h3>
+<p>A Certificate Authority is needed for device identity certificates.</p>
+<form method="POST" action="/admin/tenants/{{.Tenant.ID}}/setup-ca">
+<button type="submit" class="btn btn-green">Auto-Generate SCEP CA</button>
+</form>
+</div>
+{{end}}
+
+<div class="card">
+<h3>📱 {{if .HasAPNs}}APNs Certificate (Configured){{else}}Step 2: Upload APNs Push Certificate{{end}}</h3>
+{{if not .HasAPNs}}
+<div class="info-box">
+  <strong>How to get your APNs certificate:</strong><br>
+  1. Go to <a href="https://mdmcert.download" target="_blank">mdmcert.download</a> and follow the steps<br>
+  2. Upload the signed CSR to <a href="https://identity.apple.com/pushcert" target="_blank">identity.apple.com/pushcert</a><br>
+  3. Download the .pem certificate and upload it below
+</div>
+{{end}}
+<form method="POST" action="/admin/tenants/{{.Tenant.ID}}/apns" enctype="multipart/form-data">
+<label for="certificate">APNs Certificate (.pem file)</label>
+<input type="file" id="certificate" name="certificate" accept=".pem,.p12,.pfx" required>
+
+<label for="topic">APNs Topic</label>
+<input type="text" id="topic" name="topic" placeholder="com.apple.mgmt.External.XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX" value="{{.Tenant.APNsTopic}}" required>
+<div class="info-box">The topic is inside your APNs certificate. It starts with <code>com.apple.mgmt.External.</code></div>
+
+<button type="submit" class="btn">{{if .HasAPNs}}Update Certificate{{else}}Upload Certificate{{end}}</button>
+</form>
+</div>
+
+{{if .HasAPNs}}
+<div class="card">
+<h3>🔗 Enrollment</h3>
 <p>Enrollment URL: <code>/enroll/{{.Tenant.ID}}</code></p>
 <a href="/enroll/{{.Tenant.ID}}" target="_blank" class="btn">Open Enrollment Page</a>
 <a href="/enroll/{{.Tenant.ID}}/profile" class="btn btn-secondary">Download Profile</a>
 </div>
+{{else}}
 <div class="card">
-<h3>Devices ({{.DeviceCount}})</h3>
+<h3>🔗 Enrollment</h3>
+<div class="warn-box">Complete Step 1 (SCEP CA) and Step 2 (APNs Certificate) above before enrolling devices.</div>
+</div>
+{{end}}
+
+<div class="card">
+<h3>💻 Devices ({{.DeviceCount}})</h3>
 <table>
 <tr><th>UDID</th><th>Name</th><th>Model</th><th>Last Seen</th></tr>
 {{range .Devices}}
@@ -531,7 +617,7 @@ th, td { text-align: left; padding: 12px; border-bottom: 1px solid #e0e0e0; }
 <td>{{.LastSeenAt.Format "2006-01-02 15:04"}}</td>
 </tr>
 {{else}}
-<tr><td colspan="4">No enrolled devices</td></tr>
+<tr><td colspan="4">No enrolled devices yet</td></tr>
 {{end}}
 </table>
 </div>

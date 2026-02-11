@@ -90,6 +90,10 @@ func NewGenerator() *Generator {
 
 // GenerateEnrollmentProfile creates a complete enrollment profile
 func (g *Generator) GenerateEnrollmentProfile(cfg EnrollmentConfig) ([]byte, error) {
+	if cfg.APNsTopic == "" {
+		return nil, fmt.Errorf("APNs topic is required for enrollment. Upload an APNs push certificate for this tenant first")
+	}
+
 	profileUUID := uuid.New().String()
 	mdmUUID := uuid.New().String()
 	scepUUID := uuid.New().String()
@@ -111,7 +115,7 @@ func (g *Generator) GenerateEnrollmentProfile(cfg EnrollmentConfig) ([]byte, err
 	// 1. CA Certificate Payload (if provided)
 	if len(caCertData) > 0 {
 		caPayload := map[string]interface{}{
-			"PayloadType":        "com.apple.security.pem",
+			"PayloadType":        "com.apple.security.root",
 			"PayloadIdentifier":  fmt.Sprintf("com.%s.mdm.ca", cfg.TenantID),
 			"PayloadUUID":        caUUID,
 			"PayloadVersion":     1,
@@ -131,7 +135,7 @@ func (g *Generator) GenerateEnrollmentProfile(cfg EnrollmentConfig) ([]byte, err
 		"PayloadContent": map[string]interface{}{
 			"URL":       fmt.Sprintf("%s/scep/%s", cfg.ServerURL, cfg.TenantID),
 			"Name":      "MDM-SCEP",
-			"Subject":   [][]string{{"CN", "MDM Device Certificate"}, {"O", cfg.TenantName}},
+			"Subject":   [][][]string{{{"CN", "MDM Device Certificate"}}, {{"O", cfg.TenantName}}},
 			"Keysize":   2048,
 			"Key Type":  "RSA",
 			"Key Usage": 5, // Both signing and encryption
@@ -156,6 +160,7 @@ func (g *Generator) GenerateEnrollmentProfile(cfg EnrollmentConfig) ([]byte, err
 		"SignMessage":             true,
 		"CheckOutWhenRemoved":     true,
 		"IdentityCertificateUUID": scepUUID,
+		"ServerCapabilities":      []string{"com.apple.mdm.per-user-connections"},
 	}
 	payloads = append(payloads, mdmPayload)
 
@@ -242,7 +247,16 @@ const ProfileTemplate = `<!DOCTYPE html>
         <h1>Enroll Your Device</h1>
         <p>Welcome to {{.TenantName}} device management. Click the button below to download and install the enrollment profile.</p>
         
+        {{if .APNsTopic}}
         <a href="/enroll/{{.TenantID}}/profile" class="btn">Download Profile</a>
+        {{else}}
+        <div style="background:#fff3cd;border:1px solid #ffc107;border-radius:8px;padding:15px;margin:15px 0;color:#856404">
+            <strong>⚠️ Not Ready:</strong> This tenant does not have an APNs push certificate configured yet.
+            An administrator must upload an APNs certificate before devices can enroll.
+            <br><br>
+            <a href="https://mdmcert.download" target="_blank" style="color:#0071e3">Get a free APNs certificate →</a>
+        </div>
+        {{end}}
         
         <div class="steps">
             <div class="step">

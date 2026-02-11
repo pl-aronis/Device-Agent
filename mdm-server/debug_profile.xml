@@ -1,0 +1,103 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+	<dict>
+		<key>PayloadContent</key>
+		<array>
+			<dict>
+				<key>PayloadContent</key>
+				<data>LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSUZKakNDQXc2Z0F3SUJBZ0lSQUlZTmZ5ZjNsZTBBRWE0WDIrc01Sa0F3RFFZSktvWklodmNOQVFFTEJRQXcKS3pFUU1BNEdBMVVFQ2hNSGRHVnpkR2x1WnpFWE1CVUdBMVVFQXhNT2RHVnpkR2x1WnlCTlJFMGdRMEV3SGhjTgpNall3TWpFeE1USXhOakUwV2hjTk16WXdNakV4TVRJeE5qRTBXakFyTVJBd0RnWURWUVFLRXdkMFpYTjBhVzVuCk1SY3dGUVlEVlFRREV3NTBaWE4wYVc1bklFMUVUU0JEUVRDQ0FpSXdEUVlKS29aSWh2Y05BUUVCQlFBRGdnSVAKQURDQ0Fnb0NnZ0lCQUxaUzZUSTIxRHlVWXZKWWhXMGNMMExVcEVtS1poSkxMODk1UGxpdDdGa3RGRWYwdTJ2YQp1STByTy9Geml1VXZCVlM5YkVJWjNkVUVzcnlOOVQ5ODEvTXVZYWM2cjludWFHbDgrK1A2eEV1T0swSGJMN3pCClBlZ2Vqa1pCSEtsUitGYjRPdU1Scm9QV0p4SzJxb21aWnpTUWsxN2tLTENJN3Z6M0lSZm4yVHppV0Q1dnFtWHYKYVM4NzltNFllcUoyNHh6UkhzYlJyc0s1dVJ1akNyVmRCQ3ZLb29EbGhNbTdQQWFjcjlIS0RLNXk2by9Ndm1JSApXZUNpbjNmVk41WGlUN21iLzJCSGxSR3p6Z0s1U3hGNnRTZWpUZDVTTFB3M3JmRURsUWdjcGNjQ1VEZVFrTzNLCkRrNW5WTGV2RXNKT2dKSkZ0bUg0dzhWdkl5Rm95bGxQR2ZSRlh1WFZHMW51SWlYeXRzTk1Ic091SXJaWE50VHQKUUhORDVpR1p6MVdQaUp5b2xxaUxUSjdYdmo2Z1hsRHJrTFh5NXpzWE9QbXNQSFQxeitsV1N1T3k5WjYzdmsyawpMNXNxRm5SSUlRakJ3WmlWTmw3N1U5U0RUdzNNRE5wdkE4bVhTTFgrU3hPRUN4Qmp4ZDRKUU8rN1JlNWgwek5GCjk2NnJOUkhWd29zTkZqSUZncUFZcHlWL3hHcGtBaWg3U1JuTmlGa0FYcjNVL3AvUlpWNVJ0NWhJTWFHNUlBaFQKNDFrejd4cEFxM1laNWl0N0p4a1crMFlpN0E3QUFRQ0VRS2xSTitEWVcwNWVveW9ITHV1c2ovdWd2V3Q1Q21ZYQoxaExySW9iWEgraGRSUlhWTzBNbFJmV0hTbFlrSWkyZncyZXF3QWNVZHduQjhmWDVIUFhSRHJQVEFnTUJBQUdqClJUQkRNQTRHQTFVZER3RUIvd1FFQXdJQmhqQVNCZ05WSFJNQkFmOEVDREFHQVFIL0FnRUJNQjBHQTFVZERnUVcKQkJSbWtZZnBqVGZiLzFPaXd2elg0amlxOSt0US96QU5CZ2txaGtpRzl3MEJBUXNGQUFPQ0FnRUFtdEQzd25YTwpvdUpnbHd3TEtJRGJOTG1qSHQ1OURZeFVqWmlmV0ZnM3FDNjlvRXZjeE1XS0cxVFNuY1VZRjVlTDA1WmQ1Y2l1CnpWbmxVdnp1Ylh3Z20zUkJtdUNBODVMaUw2T2FjYWZhMy8rb2VUYlI1Tk9GV0M2MEZsVnJVMFA0Ym4yZTkxL0cKY2NUZHh5UnRjQzJGbnhrYjg0NXJTV3ltWVFuVE1COXZPSytQd2NoZXhDaHFpRUFvcnZQTXJOYmV3eklSdjhrSgpjTElJZjNFcXFCYXRhZENQMUdkZHV5b0Y0REt1L1F0OFFURXZwSG44aHRoT21Ya3RjaWlpdXhIcEI4dzQrWXplCnhEQUI0UHpOb09WdXd4Qlg2aE1ibjc0KzZCZG5YY04wVUdjVFMrWHNQUi9BeERBTmZranhFcmtWS3JsbWxkVXAKblBFWUNjT3ppcU1QSzNTazNnRUdlb0Q4aHo0eklxMmhyNFVwTW1BanNienNyUzRqM0ZuaVU5ZUFRODBKK0crOQpxVDJJUFFlS29QM2EyNWcvd2V5SFNtKzQrZVorMUh6ZU5tTU5KVzIyaTdBUVpDMDM1THpLUjNJalhrRlJMaVhtCkJQOU1RcWhwM2gxNGFSbmppQnJvaUk4bHVhZ2pMcUtlOVVHMW5pREg0emVtUHp5bUN3UWYzR01yampyYUsybUEKSk1SODU0MndzRCsxajdkZ2gwREk4UDdpeUs0azNzTG9vSTYzT2dwbnowMU5kT3hGU2V2WCthTzlITkcrMGxiSQpneHg4Z3VpMFNqTXI0QndiQ3dVWnJGZzRxdDk0TG9pYXU2TUtLZE8vK2RIMTNDQitvTXd1MGVSbjZkZndoMzFwCkZ4dVpnQVpmU1UwYVA3U2tNWTlLSTFDQjRCMEpKZk01Q1dBPQotLS0tLUVORCBDRVJUSUZJQ0FURS0tLS0tCg==</data>
+				<key>PayloadDisplayName</key>
+				<string>testing CA Certificate</string>
+				<key>PayloadIdentifier</key>
+				<string>com.65871431-6d9a-4adc-83f7-53a37c35a82f.mdm.ca</string>
+				<key>PayloadType</key>
+				<string>com.apple.security.pem</string>
+				<key>PayloadUUID</key>
+				<string>ca3140c7-d7ef-473d-9636-de82648f264a</string>
+				<key>PayloadVersion</key>
+				<integer>1</integer>
+			</dict>
+			<dict>
+				<key>PayloadContent</key>
+				<dict>
+					<key>Key Type</key>
+					<string>RSA</string>
+					<key>Key Usage</key>
+					<integer>5</integer>
+					<key>Keysize</key>
+					<integer>2048</integer>
+					<key>Name</key>
+					<string>MDM-SCEP</string>
+					<key>Subject</key>
+					<array>
+						<array>
+							<string>CN</string>
+							<string>MDM Device Certificate</string>
+						</array>
+						<array>
+							<string>O</string>
+							<string>testing</string>
+						</array>
+					</array>
+					<key>URL</key>
+					<string>https://penn-sponsor-ada-producer.trycloudflare.com/scep/65871431-6d9a-4adc-83f7-53a37c35a82f</string>
+				</dict>
+				<key>PayloadDisplayName</key>
+				<string>MDM Identity Certificate</string>
+				<key>PayloadIdentifier</key>
+				<string>com.65871431-6d9a-4adc-83f7-53a37c35a82f.mdm.scep</string>
+				<key>PayloadType</key>
+				<string>com.apple.security.scep</string>
+				<key>PayloadUUID</key>
+				<string>fa776e9f-06ca-46df-a90c-cfeeef79284d</string>
+				<key>PayloadVersion</key>
+				<integer>1</integer>
+			</dict>
+			<dict>
+				<key>AccessRights</key>
+				<integer>8191</integer>
+				<key>CheckInURL</key>
+				<string>https://penn-sponsor-ada-producer.trycloudflare.com/mdm/checkin</string>
+				<key>CheckOutWhenRemoved</key>
+				<true/>
+				<key>IdentityCertificateUUID</key>
+				<string>fa776e9f-06ca-46df-a90c-cfeeef79284d</string>
+				<key>PayloadDisplayName</key>
+				<string>MDM Configuration</string>
+				<key>PayloadIdentifier</key>
+				<string>com.65871431-6d9a-4adc-83f7-53a37c35a82f.mdm.profile</string>
+				<key>PayloadType</key>
+				<string>com.apple.mdm</string>
+				<key>PayloadUUID</key>
+				<string>e41f5d60-97a7-4fe2-807e-42c5187fecef</string>
+				<key>PayloadVersion</key>
+				<integer>1</integer>
+				<key>ServerCapabilities</key>
+				<array>
+					<string>com.apple.mdm.per-user-connections</string>
+				</array>
+				<key>ServerURL</key>
+				<string>https://penn-sponsor-ada-producer.trycloudflare.com/mdm/connect</string>
+				<key>SignMessage</key>
+				<true/>
+				<key>Topic</key>
+				<string>com.apple.mgmt.External.5ae272f8-6e29-4c08-aae9-cc310f896281</string>
+			</dict>
+		</array>
+		<key>PayloadDescription</key>
+		<string>This profile enables device management by testing.</string>
+		<key>PayloadDisplayName</key>
+		<string>testing MDM Enrollment</string>
+		<key>PayloadIdentifier</key>
+		<string>com.65871431-6d9a-4adc-83f7-53a37c35a82f.mdm</string>
+		<key>PayloadOrganization</key>
+		<string>testing</string>
+		<key>PayloadType</key>
+		<string>Configuration</string>
+		<key>PayloadUUID</key>
+		<string>2b4f2ee0-c960-4161-9bc3-d30afc19b1d2</string>
+		<key>PayloadVersion</key>
+		<integer>1</integer>
+	</dict>
+</plist>
