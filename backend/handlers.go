@@ -29,6 +29,12 @@ type HeartbeatResp struct {
 	Action string `json:"action"`
 }
 
+type RecoveryKeyUpdateReq struct {
+	DeviceID    string `json:"device_id"`
+	ProtectorID string `json:"protector_id"`
+	RecoveryKey string `json:"recovery_key"`
+}
+
 func registerHandler(s *Storage) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req RegisterReq
@@ -42,6 +48,33 @@ func registerHandler(s *Storage) http.HandlerFunc {
 			return
 		}
 		json.NewEncoder(w).Encode(RegisterResp{DeviceID: d.ID, Status: d.Status, RecoveryKey: d.RecoveryKey})
+	}
+}
+
+func recoveryKeyHandler(s *Storage) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req RecoveryKeyUpdateReq
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid payload: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		if req.DeviceID == "" || req.ProtectorID == "" || req.RecoveryKey == "" {
+			http.Error(w, "device_id, protector_id and recovery_key are required", http.StatusBadRequest)
+			return
+		}
+
+		d, ok := s.UpdateRecoveryKey(req.DeviceID, req.ProtectorID, req.RecoveryKey)
+		if !ok {
+			http.Error(w, "device not found", http.StatusNotFound)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"device_id":    d.ID,
+			"status":       "ok",
+			"protector_id": d.RecoveryProtectorID,
+		})
 	}
 }
 
@@ -89,10 +122,11 @@ func heartbeatHandler(s *Storage) http.HandlerFunc {
 
 // adminSetHandler: /admin/set?id=...&status=ACTIVE|LOCK
 type AdminSetResp struct {
-	DeviceID    string `json:"device_id,omitempty"`
-	Status      string `json:"status"`
-	RecoveryKey string `json:"recovery_key,omitempty"`
-	Message     string `json:"message,omitempty"`
+	DeviceID            string `json:"device_id,omitempty"`
+	Status              string `json:"status"`
+	RecoveryKey         string `json:"recovery_key,omitempty"`
+	RecoveryProtectorID string `json:"recovery_protector_id,omitempty"`
+	Message             string `json:"message,omitempty"`
 }
 
 func adminSetHandler(s *Storage) http.HandlerFunc {
@@ -119,7 +153,11 @@ func adminSetHandler(s *Storage) http.HandlerFunc {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		resp := AdminSetResp{DeviceID: d.ID, Status: d.Status}
+		resp := AdminSetResp{
+			DeviceID:            d.ID,
+			Status:              d.Status,
+			RecoveryProtectorID: d.RecoveryProtectorID,
+		}
 		// Return recovery key if transitioning from LOCK to ACTIVE
 		if oldStatus == "LOCK" && status == "ACTIVE" {
 			resp.RecoveryKey = d.RecoveryKey

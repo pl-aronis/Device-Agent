@@ -26,16 +26,13 @@ function App() {
 
   const handleLock = async (deviceId) => {
     try {
-      const response = await axios.get(`${API_BASE}/admin/set`, {
+      await axios.get(`${API_BASE}/admin/set`, {
         params: {
           id: deviceId,
           status: 'LOCK',
         },
       })
-      // Update local state
-      setDevices(devices.map(d =>
-        d.id === deviceId ? { ...d, status: 'LOCK' } : d
-      ))
+      await fetchDevices()
     } catch (err) {
       setError(`Failed to lock device: ${err.message}`)
       console.error(err)
@@ -50,16 +47,17 @@ function App() {
           status: 'ACTIVE',
         },
       })
-      // Update local state with recovery key
-      setDevices(devices.map(d =>
+      setDevices(prev => prev.map(d =>
         d.id === deviceId
           ? {
               ...d,
               status: 'ACTIVE',
               recovery_key: response.data.recovery_key,
+              recovery_protector_id: response.data.recovery_protector_id ?? d.recovery_protector_id,
             }
           : d
       ))
+      await fetchDevices()
     } catch (err) {
       setError(`Failed to unlock device: ${err.message}`)
       console.error(err)

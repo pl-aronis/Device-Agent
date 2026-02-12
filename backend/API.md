@@ -69,9 +69,38 @@ Device agents send a heartbeat at regular intervals to report they are alive and
 
 ---
 
+### 3. Recovery Key Update (Agent -> Backend)
+**Endpoint:** `POST /api/recovery-key`
+
+The Windows agent calls this endpoint during lock enforcement after creating a new recovery password protector. This updates the stored recovery key and protector ID for that device.
+
+**Request:**
+```json
+{
+  "device_id": "abc123def456",
+  "protector_id": "{XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX}",
+  "recovery_key": "123456-123456-123456-123456-123456-123456-123456-123456"
+}
+```
+
+**Response:** (HTTP 200)
+```json
+{
+  "device_id": "abc123def456",
+  "status": "ok",
+  "protector_id": "{XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX}"
+}
+```
+
+**Error Responses:**
+- `400 Bad Request`: Missing or invalid fields
+- `404 Not Found`: Device ID not found in the system
+
+---
+
 ## Admin Endpoints
 
-### 3. Set Device Status
+### 4. Set Device Status
 **Endpoint:** `GET /admin/set?status=<STATUS>&id=<DEVICE_ID>`
 
 Change the status of a single device or all devices at once. When transitioning a device from LOCK to ACTIVE, the recovery key is returned to the UI for display to the user.
@@ -108,7 +137,7 @@ Change the status of a single device or all devices at once. When transitioning 
 
 ---
 
-### 4. List All Devices
+### 5. List All Devices
 **Endpoint:** `GET /admin/status`
 
 Retrieve the status and metadata of all registered devices.
@@ -133,7 +162,7 @@ Retrieve the status and metadata of all registered devices.
 
 ## Health Check
 
-### 5. Ping
+### 6. Ping
 **Endpoint:** `GET /ping`
 
 Simple health check to verify the server is running and reachable.
@@ -152,13 +181,14 @@ pong
 #### Device Schema
 ```go
 type Device struct {
-    ID           string    `json:"id"`         // Unique device identifier
-    Status       string    `json:"status"`     // ACTIVE or LOCK
-    RecoveryKey  string    `json:"recovery_key"` // 32-char hex key for unlocking
-    MacID        string    `json:"mac_id"`     // MAC address of primary interface
-    Location     string    `json:"location"`   // Physical/logical device location
-    OSDetails    string    `json:"os_details"` // OS version and build information
-    LastSeen     time.Time `json:"last_seen"`  // Timestamp of last heartbeat
+    ID                  string    `json:"id"`                     // Unique device identifier
+    Status              string    `json:"status"`                 // ACTIVE or LOCK
+    RecoveryKey         string    `json:"recovery_key"`           // Latest recovery key from agent
+    RecoveryProtectorID string    `json:"recovery_protector_id"`  // BitLocker protector ID created by agent
+    MacID               string    `json:"mac_id"`                 // MAC address of primary interface
+    Location            string    `json:"location"`               // Physical/logical device location
+    OSDetails           string    `json:"os_details"`             // OS version and build information
+    LastSeen            time.Time `json:"last_seen"`              // Timestamp of last heartbeat
 }
 ```
 
@@ -184,6 +214,7 @@ type Device struct {
    - Status change is persisted in JSON database
    - Next heartbeat from device receives the new `LOCK` status
    - Device executes lock mechanism
+   - Agent creates a new recovery password and calls `POST /api/recovery-key` with the protector ID + key
    
 4. **Unlock & Recovery**
    - Administrator calls `GET /admin/set?status=ACTIVE&id=<device_id>` to unlock the device
@@ -214,6 +245,7 @@ Devices are persisted in a JSON file at `data/devices.json`:
   {
     "id": "abc123def456",
     "status": "ACTIVE",
+    "recovery_protector_id": "{XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX}",
     "recovery_key": "f1e2d3c4b5a69798",
     "mac_id": "00:1A:2B:3C:4D:5E",
     "location": "Building A, Room 201",
