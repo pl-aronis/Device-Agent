@@ -458,19 +458,88 @@ func (h *Handler) handleAPITenantOperations(w http.ResponseWriter, r *http.Reque
 
 	// /api/tenants/{id}
 	if len(parts) == 4 {
-		json.NewEncoder(w).Encode(tenant)
-		return
+		switch r.Method {
+		case http.MethodGet:
+			json.NewEncoder(w).Encode(tenant)
+			return
+		case http.MethodDelete:
+			if err := h.tenantStore.Delete(tenantID); err != nil {
+				http.Error(w, fmt.Sprintf(`{"status":"error","message":"%s"}`, err), 500)
+				return
+			}
+			w.WriteHeader(200)
+			fmt.Fprintf(w, `{"status":"ok","message":"Tenant deleted"}`)
+			return
+		default:
+			http.Error(w, "Method not allowed", 405)
+			return
+		}
 	}
 
 	// /api/tenants/{id}/devices
 	if parts[4] == "devices" {
-		devices, err := h.deviceStore.ListByTenant(tenantID)
-		if err != nil {
-			http.Error(w, err.Error(), 500)
+		// /api/tenants/{id}/devices (GET - list devices)
+		if len(parts) == 5 {
+			devices, err := h.deviceStore.ListByTenant(tenantID)
+			if err != nil {
+				http.Error(w, err.Error(), 500)
+				return
+			}
+			json.NewEncoder(w).Encode(devices)
 			return
 		}
-		json.NewEncoder(w).Encode(devices)
-		return
+
+		// /api/tenants/{id}/devices/{udid}/{action} (POST - send command)
+		if len(parts) >= 7 && r.Method == http.MethodPost {
+			udid := parts[5]
+			action := parts[6]
+
+			// Find device
+			device, err := h.deviceStore.GetByUDID(tenantID, udid)
+			if err != nil || device == nil {
+				http.Error(w, `{"status":"error","message":"Device not found"}`, 404)
+				return
+			}
+
+			// Enqueue command based on action
+			var cmdUUID string
+			var cmdErr error
+
+			switch action {
+			case "lock":
+				payload := map[string]interface{}{
+					"PIN":     "123456",
+					"Message": "This device has been locked by IT.",
+				}
+				cmdUUID, cmdErr = h.commandStore.Enqueue(device.TenantID, device.ID, "DeviceLock", payload)
+			case "locate":
+				cmdUUID, cmdErr = h.commandStore.Enqueue(device.TenantID, device.ID, "DeviceLocation", nil)
+			case "deviceinfo":
+				queries := []string{
+					"DeviceName", "OSVersion", "BuildVersion", "ModelName", "Model",
+					"ProductName", "SerialNumber", "UDID", "WiFiMAC", "BluetoothMAC",
+				}
+				payload := map[string]interface{}{"Queries": queries}
+				cmdUUID, cmdErr = h.commandStore.Enqueue(device.TenantID, device.ID, "DeviceInformation", payload)
+			case "wipe":
+				payload := map[string]interface{}{
+					"PIN": "123456",
+				}
+				cmdUUID, cmdErr = h.commandStore.Enqueue(device.TenantID, device.ID, "EraseDevice", payload)
+			default:
+				http.Error(w, `{"status":"error","message":"Unknown action"}`, 400)
+				return
+			}
+
+			if cmdErr != nil {
+				http.Error(w, fmt.Sprintf(`{"status":"error","message":"%s"}`, cmdErr), 500)
+				return
+			}
+
+			w.WriteHeader(200)
+			fmt.Fprintf(w, `{"status":"ok","command_uuid":"%s"}`, cmdUUID)
+			return
+		}
 	}
 
 	http.NotFound(w, r)
@@ -608,19 +677,73 @@ input[type="text"], input[type="file"] { width: 100%; padding: 10px; margin-bott
 <div class="card">
 <h3>💻 Devices ({{.DeviceCount}})</h3>
 <table>
-<tr><th>UDID</th><th>Name</th><th>Model</th><th>Last Seen</th></tr>
+<tr><th>UDID</th><th>Name</th><th>Model</th><th>Last Seen</th><th>Actions</th></tr>
 {{range .Devices}}
 <tr>
-<td>{{.UDID}}</td>
-<td>{{.DeviceName}}</td>
-<td>{{.Model}}</td>
+<td style="font-size: 11px; font-family: monospace;">{{.UDID}}</td>
+<td>{{if .DeviceName}}{{.DeviceName}}{{else}}-{{end}}</td>
+<td>{{if .Model}}{{.Model}}{{else}}-{{end}}</td>
 <td>{{.LastSeenAt.Format "2006-01-02 15:04"}}</td>
+<td>
+  <button onclick="sendCommand('{{$.Tenant.ID}}', '{{.UDID}}', 'deviceinfo')" class="btn" style="padding: 6px 12px; font-size: 12px; margin: 2px;">📱 Info</button>
+  <button onclick="sendCommand('{{$.Tenant.ID}}', '{{.UDID}}', 'locate')" class="btn" style="padding: 6px 12px; font-size: 12px; margin: 2px;">📍 Locate</button>
+  <button onclick="sendCommand('{{$.Tenant.ID}}', '{{.UDID}}', 'lock')" class="btn btn-secondary" style="padding: 6px 12px; font-size: 12px; margin: 2px;">🔒 Lock</button>
+  <button onclick="if(confirm('Are you sure you want to WIPE this device?')) sendCommand('{{$.Tenant.ID}}', '{{.UDID}}', 'wipe')" class="btn" style="padding: 6px 12px; font-size: 12px; margin: 2px; background: #ff3b30;">🗑️ Wipe</button>
+</td>
 </tr>
 {{else}}
-<tr><td colspan="4">No enrolled devices yet</td></tr>
+<tr><td colspan="5">No enrolled devices yet</td></tr>
 {{end}}
 </table>
+<script>
+function sendCommand(tenantId, udid, action) {
+  fetch('/api/tenants/' + tenantId + '/devices/' + udid + '/' + action, {
+    method: 'POST'
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.status === 'ok') {
+      alert('✅ Command sent! UUID: ' + data.command_uuid);
+      setTimeout(() => location.reload(), 1000);
+    } else {
+      alert('❌ Failed: ' + JSON.stringify(data));
+    }
+  })
+  .catch(err => alert('❌ Error: ' + err));
+}
+</script>
 </div>
+
+<div class="card" style="border: 1px solid #ff3b30;">
+<h3 style="color: #ff3b30;">⚠️ Danger Zone</h3>
+<p>Deleting this tenant will remove all associated data. This action cannot be undone.</p>
+<button onclick="deleteTenant('{{.Tenant.ID}}', '{{.Tenant.Name}}')" class="btn" style="background: #ff3b30;">🗑️ Delete Tenant</button>
+</div>
+<script>
+function deleteTenant(tenantId, tenantName) {
+  if (!confirm('Are you sure you want to delete tenant "' + tenantName + '"?\n\nThis will remove:\n- All enrolled devices\n- All commands and history\n- APNs and SCEP configuration\n\nThis action CANNOT be undone!')) {
+    return;
+  }
+  
+  if (!confirm('FINAL CONFIRMATION: Delete "' + tenantName + '" permanently?')) {
+    return;
+  }
+  
+  fetch('/api/tenants/' + tenantId, {
+    method: 'DELETE'
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.status === 'ok') {
+      alert('✅ Tenant deleted successfully');
+      window.location.href = '/admin/';
+    } else {
+      alert('❌ Failed: ' + JSON.stringify(data));
+    }
+  })
+  .catch(err => alert('❌ Error: ' + err));
+}
+</script>
 </div>
 </body></html>`,
 

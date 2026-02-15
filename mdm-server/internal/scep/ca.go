@@ -41,9 +41,11 @@ func NewCA(orgName string, validYears int) (*CA, error) {
 			Organization: []string{orgName},
 			CommonName:   fmt.Sprintf("%s MDM CA", orgName),
 		},
-		NotBefore:             time.Now(),
-		NotAfter:              time.Now().AddDate(validYears, 0, 0),
-		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign | x509.KeyUsageDigitalSignature,
+		NotBefore: time.Now(),
+		NotAfter:  time.Now().AddDate(validYears, 0, 0),
+		// Add KeyUsageKeyEncipherment because this CA also acts as the SCEP RA
+		// and must be able to decrypt enrollment requests.
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign | x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
 		BasicConstraintsValid: true,
 		IsCA:                  true,
 		MaxPathLen:            1,

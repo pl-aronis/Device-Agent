@@ -4,6 +4,7 @@ import (
 	"crypto"
 	"crypto/rand"
 	"crypto/x509"
+	"encoding/asn1"
 	"encoding/base64"
 	"fmt"
 	"io"
@@ -16,6 +17,15 @@ import (
 	"mdm-server/internal/store"
 
 	pkcs7 "go.mozilla.org/pkcs7"
+)
+
+var (
+	oidTransactionID  = asn1.ObjectIdentifier{2, 16, 840, 1, 113733, 1, 9, 7}
+	oidMessageType    = asn1.ObjectIdentifier{2, 16, 840, 1, 113733, 1, 9, 2}
+	oidPKIStatus      = asn1.ObjectIdentifier{2, 16, 840, 1, 113733, 1, 9, 3}
+	oidFailInfo       = asn1.ObjectIdentifier{2, 16, 840, 1, 113733, 1, 9, 4}
+	oidSenderNonce    = asn1.ObjectIdentifier{2, 16, 840, 1, 113733, 1, 9, 5}
+	oidRecipientNonce = asn1.ObjectIdentifier{2, 16, 840, 1, 113733, 1, 9, 6}
 )
 
 // Handler handles SCEP protocol requests
@@ -49,13 +59,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("SCEP request: tenant=%s, operation=%s, method=%s", tenantID, operation, r.Method)
+	log.Printf("SCEP request: tenant=%s, operation=%s, method=%s, url=%s, remote=%s",
+		tenantID, operation, r.Method, r.URL.String(), r.RemoteAddr)
 
 	// Get or load tenant CA
 	ca, err := h.getCA(tenantID)
 	if err != nil {
 		log.Printf("SCEP error: failed to get CA for tenant %s: %v", tenantID, err)
-		http.Error(w, "Tenant CA not configured", http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf("Tenant CA not configured: %v", err), http.StatusInternalServerError)
 		return
 	}
 
@@ -81,7 +92,7 @@ func (h *Handler) getCA(tenantID string) (*CA, error) {
 	// Load from database
 	tenant, err := h.tenantStore.GetByID(tenantID)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("database error: %w", err)
 	}
 	if tenant == nil {
 		return nil, fmt.Errorf("tenant not found")
@@ -115,10 +126,22 @@ func (h *Handler) getCA(tenantID string) (*CA, error) {
 
 // handleGetCACert returns the CA certificate(s)
 func (h *Handler) handleGetCACert(w http.ResponseWriter, r *http.Request, ca *CA) {
-	// Return the CA cert as DER
-	// If we had an RA cert, we'd return a degenerate PKCS#7 with both certs
-	w.Header().Set("Content-Type", "application/x-x509-ca-cert")
-	w.Write(ca.Certificate.Raw)
+	// Return the CA cert as a degenerate PKCS#7 (Application/x-x509-ca-ra-cert)
+	// This allows including the RA certificate if we had one, and is often required by SCEP clients
+	// even if there is only one root CA.
+
+	degenerate, err := pkcs7.DegenerateCertificate(ca.Certificate.Raw)
+	if err != nil {
+		log.Printf("SCEP: failed to create degenerate cert for GetCACert: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	log.Printf("SCEP GetCACert: returning CA certificate (size=%d bytes, subject=%s)",
+		len(degenerate), ca.Certificate.Subject.CommonName)
+
+	w.Header().Set("Content-Type", "application/x-x509-ca-ra-cert")
+	w.Write(degenerate)
 }
 
 // handleGetCACaps returns SCEP capabilities
@@ -129,6 +152,9 @@ func (h *Handler) handleGetCACaps(w http.ResponseWriter, r *http.Request) {
 		"AES",
 		"SCEPStandard",
 	}
+
+	log.Printf("SCEP GetCACaps: returning capabilities: %v", caps)
+
 	w.Header().Set("Content-Type", "text/plain")
 	w.Write([]byte(strings.Join(caps, "\n")))
 }
@@ -255,10 +281,10 @@ func (h *Handler) handleRawCSR(w http.ResponseWriter, message []byte, ca *CA, te
 	w.Write(degenerateCerts)
 }
 
-// sendSCEPSuccess builds a CertRep SUCCESS response
+// sendSCEPSuccess builds a CertRep SUCCESS response following the SCEP protocol spec.
+// Reference: smallstep/scep Success() method
 func (h *Handler) sendSCEPSuccess(w http.ResponseWriter, ca *CA, issuedCert *x509.Certificate, requestP7 *pkcs7.PKCS7) {
-	// Create a degenerate PKCS#7 containing the issued cert + CA cert
-	// This is the "pki-message" response
+	// Step 1: Create a degenerate PKCS#7 containing the issued certificate
 	degenerateCerts, err := pkcs7.DegenerateCertificate(issuedCert.Raw)
 	if err != nil {
 		log.Printf("SCEP: failed to create degenerate certificate: %v", err)
@@ -266,15 +292,69 @@ func (h *Handler) sendSCEPSuccess(w http.ResponseWriter, ca *CA, issuedCert *x50
 		return
 	}
 
-	// Sign the response with our CA
-	signedResponse, err := signSCEPResponse(degenerateCerts, ca.Certificate, ca.PrivateKey)
+	log.Printf("SCEP SUCCESS: degenerate cert created (%d bytes)", len(degenerateCerts))
+
+	// Step 2: Encrypt the degenerate cert for the requesting client
+	// The client's certificate is in the PKCS#7 SignedData from the request.
+	// This is CRITICAL - macOS expects the CertRep content to be encrypted.
+	encryptedContent, err := pkcs7.Encrypt(degenerateCerts, requestP7.Certificates)
 	if err != nil {
-		log.Printf("SCEP: failed to sign response: %v", err)
-		// Fallback: return degenerate cert directly
-		w.Header().Set("Content-Type", "application/x-pki-message")
-		w.Write(degenerateCerts)
+		log.Printf("SCEP: failed to encrypt cert for recipient: %v (num recipient certs: %d)", err, len(requestP7.Certificates))
+		// Fallback: try without encryption (some clients may accept this)
+		encryptedContent = degenerateCerts
+	} else {
+		log.Printf("SCEP SUCCESS: encrypted cert for %d recipient(s)", len(requestP7.Certificates))
+	}
+
+	// Step 3: Extract attributes from the request
+	transactionID, senderNonce := getSCEPAttributes(requestP7)
+	log.Printf("SCEP SUCCESS: transactionID=%s, senderNonce=%x", transactionID, senderNonce)
+
+	// Step 4: Generate a new Sender Nonce for the response
+	respSenderNonce := make([]byte, 16)
+	rand.Read(respSenderNonce)
+
+	// Step 5: Prepare signed attributes with STRING types (SCEP spec requirement)
+	// MessageType and PKIStatus MUST be PrintableString, NOT integers
+	attrs := []pkcs7.Attribute{
+		{Type: oidTransactionID, Value: transactionID},
+		{Type: oidMessageType, Value: "3"}, // CertRep as string
+		{Type: oidPKIStatus, Value: "0"},   // SUCCESS as string
+		{Type: oidSenderNonce, Value: respSenderNonce},
+		{Type: oidRecipientNonce, Value: senderNonce},
+	}
+
+	// Step 6: Create SignedData wrapping the encrypted content
+	signedData, err := pkcs7.NewSignedData(encryptedContent)
+	if err != nil {
+		log.Printf("SCEP: failed to create signed data: %v", err)
+		http.Error(w, "Internal error", http.StatusInternalServerError)
 		return
 	}
+
+	// Step 7: Add the issued certificate to the signed data
+	// The recipient expects this as the first certificate in the array
+	signedData.AddCertificate(issuedCert)
+
+	// Step 8: Sign with CA certificate and include SCEP attributes
+	signerConfig := pkcs7.SignerInfoConfig{
+		ExtraSignedAttributes: attrs,
+	}
+	if err := signedData.AddSigner(ca.Certificate, ca.PrivateKey, signerConfig); err != nil {
+		log.Printf("SCEP: failed to add signer: %v", err)
+		http.Error(w, "Internal error", http.StatusInternalServerError)
+		return
+	}
+
+	// Step 9: Finalize
+	signedResponse, err := signedData.Finish()
+	if err != nil {
+		log.Printf("SCEP: failed to finish signing: %v", err)
+		http.Error(w, "Internal error", http.StatusInternalServerError)
+		return
+	}
+
+	log.Printf("SCEP SUCCESS: sending CertRep response (%d bytes)", len(signedResponse))
 
 	w.Header().Set("Content-Type", "application/x-pki-message")
 	w.Write(signedResponse)
@@ -282,19 +362,24 @@ func (h *Handler) sendSCEPSuccess(w http.ResponseWriter, ca *CA, issuedCert *x50
 
 // sendSCEPFailure sends a SCEP failure response
 func (h *Handler) sendSCEPFailure(w http.ResponseWriter, ca *CA, requestP7 *pkcs7.PKCS7) {
-	// For now, just return a 500 - a proper implementation would return
-	// a PKCS#7 SignedData with pkiStatus=FAILURE
+	// Proper failure response should be signed and include failure status
+	// For now we just return 500, but in future we should replicate sendSCEPSuccess
+	// structure with pkiStatus=FAILURE (2)
 	http.Error(w, "SCEP enrollment failed", http.StatusInternalServerError)
 }
 
 // signSCEPResponse signs data with the CA certificate
-func signSCEPResponse(content []byte, signerCert *x509.Certificate, signerKey crypto.PrivateKey) ([]byte, error) {
+func signSCEPResponse(content []byte, signerCert *x509.Certificate, signerKey crypto.PrivateKey, attrs []pkcs7.Attribute) ([]byte, error) {
 	toBeSigned, err := pkcs7.NewSignedData(content)
 	if err != nil {
 		return nil, fmt.Errorf("create signed data: %w", err)
 	}
 
-	if err := toBeSigned.AddSigner(signerCert, signerKey, pkcs7.SignerInfoConfig{}); err != nil {
+	config := pkcs7.SignerInfoConfig{
+		ExtraSignedAttributes: attrs,
+	}
+
+	if err := toBeSigned.AddSigner(signerCert, signerKey, config); err != nil {
 		return nil, fmt.Errorf("add signer: %w", err)
 	}
 
@@ -304,6 +389,26 @@ func signSCEPResponse(content []byte, signerCert *x509.Certificate, signerKey cr
 	}
 
 	return signed, nil
+}
+
+// getSCEPAttributes extracts transactionID and senderNonce from a PKCS#7 envelope
+func getSCEPAttributes(p7 *pkcs7.PKCS7) (transactionID string, senderNonce []byte) {
+	// Extract Transaction ID
+	if err := p7.UnmarshalSignedAttribute(oidTransactionID, &transactionID); err != nil {
+		// Try extracting as bytes in case it was encoded differently
+		var paramBytes []byte
+		if err := p7.UnmarshalSignedAttribute(oidTransactionID, &paramBytes); err == nil {
+			transactionID = string(paramBytes)
+		}
+	}
+
+	// Extract Sender Nonce
+	if err := p7.UnmarshalSignedAttribute(oidSenderNonce, &senderNonce); err != nil {
+		// Log error or ignore? SCEP requires senderNonce.
+		log.Printf("SCEP: failed to extract senderNonce: %v", err)
+	}
+
+	return
 }
 
 // InvalidateCache removes a tenant's CA from the cache

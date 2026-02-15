@@ -70,8 +70,9 @@ func (h *CheckinHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Determine tenant from topic or certificate
 	tenantID := h.resolveTenant(r, msg.Topic)
 	if tenantID == "" {
-		// For backward compatibility, use a default tenant
-		tenantID = "default"
+		log.Printf("Could not resolve tenant for device %s (topic: %s)", msg.UDID, msg.Topic)
+		http.Error(w, "Could not determine tenant", http.StatusBadRequest)
+		return
 	}
 
 	switch msg.MessageType {
@@ -147,13 +148,29 @@ func (h *CheckinHandler) handleCheckOut(w http.ResponseWriter, msg CheckinMessag
 func (h *CheckinHandler) resolveTenant(r *http.Request, topic string) string {
 	// Try to get tenant from URL path (e.g., /mdm/checkin/{tenantID})
 	parts := strings.Split(r.URL.Path, "/")
-	if len(parts) >= 4 {
+	if len(parts) >= 4 && parts[3] != "" {
 		return parts[3]
 	}
 
-	// Try to resolve from topic
-	// Topics are typically in format: com.apple.mgmt.External.{uuid}
-	// We could map this to a tenant
+	// Try to resolve from APNs topic
+	if topic != "" {
+		tenants, err := h.tenantStore.List()
+		if err == nil {
+			for _, t := range tenants {
+				if t.APNsTopic == topic {
+					log.Printf("Resolved tenant %s from APNs topic %s", t.ID, topic)
+					return t.ID
+				}
+			}
+		}
+	}
+
+	// Fallback: use the first available tenant
+	tenants, err := h.tenantStore.List()
+	if err == nil && len(tenants) > 0 {
+		log.Printf("Using first available tenant: %s (%s)", tenants[0].ID, tenants[0].Name)
+		return tenants[0].ID
+	}
 
 	return ""
 }
@@ -343,6 +360,25 @@ func (h *AdminHandler) DeviceAction(w http.ResponseWriter, r *http.Request) {
 		action = parts[6]
 	} else {
 		http.Error(w, "Invalid path", 400)
+		return
+	}
+
+	// Handle GET /api/devices/{udid}/commands
+	if action == "commands" && r.Method == http.MethodGet {
+		device, ok := h.deviceStore.GetDevice(udid)
+		if !ok || device == nil {
+			http.Error(w, `{"status":"error","message":"Device not found"}`, 404)
+			return
+		}
+
+		commands, err := h.commandStore.ListByDevice(device.ID, 50)
+		if err != nil {
+			http.Error(w, fmt.Sprintf(`{"status":"error","message":"%s"}`, err), 500)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(commands)
 		return
 	}
 

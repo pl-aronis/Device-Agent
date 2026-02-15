@@ -18,13 +18,13 @@ if (-not $cloudflared) {
 Write-Host "  Using: $cloudflared" -ForegroundColor Gray
 
 # Stop any existing processes
-Write-Host "[1/4] Stopping existing processes..." -ForegroundColor Yellow
+Write-Host "[1/5] Stopping existing processes..." -ForegroundColor Yellow
 Stop-Process -Name mdmserver -Force -ErrorAction SilentlyContinue
 Stop-Process -Name cloudflared -Force -ErrorAction SilentlyContinue
 Start-Sleep -Seconds 2
 
 # Build the server
-Write-Host "[2/4] Building MDM server..." -ForegroundColor Yellow
+Write-Host "[2/5] Building MDM server..." -ForegroundColor Yellow
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 Push-Location $scriptDir
 go build -o mdmserver.exe ./cmd/mdmserver
@@ -36,7 +36,7 @@ if (-not $?) {
 Write-Host "  OK" -ForegroundColor Green
 
 # Start cloudflared tunnel in background
-Write-Host "[3/4] Starting Cloudflare tunnel..." -ForegroundColor Yellow
+Write-Host "[3/5] Starting Cloudflare tunnel..." -ForegroundColor Yellow
 $tunnelJob = Start-Process -FilePath $cloudflared -ArgumentList "tunnel", "--url", "http://localhost:8080" -PassThru -NoNewWindow
 Start-Sleep -Seconds 5
 
@@ -68,8 +68,31 @@ catch {
 
 Write-Host "  Tunnel URL: $tunnelURL" -ForegroundColor Green
 
+# Generate enrollment profile automatically
+Write-Host "[4/5] Generating enrollment profile..." -ForegroundColor Yellow
+try {
+    # Extract hostname from tunnel URL (remove https://)
+    $hostname = $tunnelURL -replace '^https?://', ''
+    
+    # Get default tenant ID from template or use hardcoded one
+    $tenantID = "65871431-6d9a-4adc-83f7-53a37c35a82f"
+    
+    # Call the profile generator script
+    $generateScript = Join-Path $scriptDir "generate-enrollment-profile.ps1"
+    if (Test-Path $generateScript) {
+        & $generateScript -PublicURL $hostname -TenantID $tenantID -OutputFile "enrollment.mobileconfig" | Out-Null
+        Write-Host "  Profile generated: enrollment.mobileconfig" -ForegroundColor Green
+    } else {
+        Write-Host "  Warning: generate-enrollment-profile.ps1 not found, skipping profile generation" -ForegroundColor Yellow
+    }
+}
+catch {
+    Write-Host "  Warning: Failed to generate enrollment profile: $_" -ForegroundColor Yellow
+    Write-Host "  You can manually generate it with: .\generate-enrollment-profile.ps1 -PublicURL <url>" -ForegroundColor Gray
+}
+
 # Start MDM server with the tunnel URL
-Write-Host "[4/4] Starting MDM server..." -ForegroundColor Yellow
+Write-Host "[5/5] Starting MDM server..." -ForegroundColor Yellow
 $env:MDM_SERVER_URL = $tunnelURL
 
 Write-Host ""
@@ -78,13 +101,28 @@ Write-Host "  MDM Server is running!" -ForegroundColor Green
 Write-Host "  Tunnel:    $tunnelURL" -ForegroundColor White
 Write-Host "  Admin:     $tunnelURL/admin/" -ForegroundColor White
 Write-Host "  Health:    $tunnelURL/health" -ForegroundColor White
+Write-Host "----------------------------------------" -ForegroundColor Cyan
+Write-Host "  Enrollment Profile: enrollment.mobileconfig" -ForegroundColor Yellow
+Write-Host "  Transfer to Mac and install to enroll" -ForegroundColor Gray
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "  Press Ctrl+C to stop" -ForegroundColor Gray
 Write-Host ""
 
 # Run server in foreground (Ctrl+C stops everything)
+# All logs (stdout and stderr) will be shown in real-time
+Write-Host "--- Server Logs (Ctrl+C to stop) ---" -ForegroundColor Cyan
+Write-Host ""
 try {
-    & .\mdmserver.exe
+    # Start server and capture all output streams
+    $process = Start-Process -FilePath ".\mdmserver.exe" -NoNewWindow -PassThru -Wait
+    
+    # If process exits with error code
+    if ($process.ExitCode -ne 0 -and $process.ExitCode -ne $null) {
+        Write-Host "`nERROR: Server exited with code $($process.ExitCode)" -ForegroundColor Red
+    }
+}
+catch {
+    Write-Host "`nERROR: Server crashed: $_" -ForegroundColor Red
 }
 finally {
     Write-Host "`nStopping cloudflared tunnel..." -ForegroundColor Yellow
