@@ -8,7 +8,7 @@ React + Vite admin dashboard for managing Device Agent devices.
 - **Lock/Unlock Control**: Lock or unlock devices with a single click
 - **Status Display**: Visual status badges showing if devices are ACTIVE or LOCKED
 - **Device Information**: Display device location, MAC ID, OS details, and last seen timestamp
-- **Recovery Key Display**: Show recovery key to admin after unlocking a device
+- **Recovery Details Display**: Show latest recovery key and recovery protector ID from backend
 - **Auto-refresh**: Devices list refreshes every 10 seconds
 - **Responsive Design**: Works on desktop, tablet, and mobile devices
 
@@ -70,12 +70,14 @@ Each device displays:
 - **MAC ID**: Network interface address
 - **OS Details**: Operating system information
 - **Last Seen**: Last heartbeat timestamp
+- **Recovery Protector ID**: BitLocker protector ID reported by the agent
 - **Lock/Unlock Button**: Toggle device status
+- **Recovery Info Toggle**: Show/hide recovery details
 
-### Recovery Key Display
-When a device is unlocked (transitioned from LOCK to ACTIVE):
+### Recovery Details Display
+When recovery data exists on a device:
 - A recovery key section appears on the device card
-- Shows the recovery key that should be shared with the user
+- Shows both the recovery protector ID and the recovery key
 - Provides a copy-to-clipboard button for easy sharing
 
 ## Development Notes

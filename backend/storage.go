@@ -12,14 +12,15 @@ import (
 )
 
 type Device struct {
-	ID          string    `json:"id"`
-	Status      string    `json:"status"`
-	RecoveryKey string    `json:"recovery_key"`
-	MacID       string    `json:"mac_id"`
-	Location    string    `json:"location"`
-	OSDetails   string    `json:"os_details"`
-	BIOSPass    string    `json:"bios_pass"`
-	LastSeen    time.Time `json:"last_seen"`
+	ID                  string    `json:"id"`
+	Status              string    `json:"status"`
+	RecoveryKey         string    `json:"recovery_key"`
+	RecoveryProtectorID string    `json:"recovery_protector_id,omitempty"`
+	MacID               string    `json:"mac_id"`
+	Location            string    `json:"location"`
+	OSDetails           string    `json:"os_details"`
+	BIOSPass            string    `json:"bios_pass"`
+	LastSeen            time.Time `json:"last_seen"`
 }
 
 type Storage struct {
@@ -158,4 +159,21 @@ func (s *Storage) AllDevices() []Device {
 		out = append(out, d)
 	}
 	return out
+}
+
+func (s *Storage) UpdateRecoveryKey(id, protectorID, recoveryKey string) (Device, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	d, ok := s.devices[id]
+	if !ok {
+		return Device{}, false
+	}
+
+	d.RecoveryProtectorID = protectorID
+	d.RecoveryKey = recoveryKey
+	d.LastSeen = time.Now()
+	s.devices[id] = d
+	_ = s.saveLocked()
+	return d, true
 }
