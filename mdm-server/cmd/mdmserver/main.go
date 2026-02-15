@@ -86,6 +86,7 @@ func main() {
 		DeviceStore:  deviceStore,
 		CommandStore: commandStore,
 		SCEPHandler:  scepHandler,
+		APNsPool:     apnsPool,
 		ServerURL:    cfg.ServerURL,
 		JWTSecret:    cfg.JWTSecret,
 	})

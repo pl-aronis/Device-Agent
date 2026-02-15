@@ -224,8 +224,27 @@ func (h *ConnectHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if report.CommandUUID != "" {
 		switch report.Status {
 		case "Acknowledged":
-			h.commandStore.MarkAcknowledged(report.CommandUUID)
-			log.Printf("Command %s acknowledged", report.CommandUUID)
+			// Parse the full response body to capture any response data (e.g., DeviceInformation)
+			var fullResponse map[string]interface{}
+			plist.Unmarshal(bodyBytes, &fullResponse)
+
+			// Extract response data (remove standard fields, keep only response-specific data)
+			responseData := make(map[string]interface{})
+			for k, v := range fullResponse {
+				switch k {
+				case "UDID", "Status", "CommandUUID":
+					// Standard fields, skip
+				default:
+					responseData[k] = v
+				}
+			}
+
+			h.commandStore.MarkAcknowledged(report.CommandUUID, responseData)
+			if len(responseData) > 0 {
+				log.Printf("Command %s acknowledged with response data: %v", report.CommandUUID, keys(responseData))
+			} else {
+				log.Printf("Command %s acknowledged", report.CommandUUID)
+			}
 		case "Error":
 			h.commandStore.MarkError(report.CommandUUID, report.ErrorChain)
 			log.Printf("Command %s failed: %v", report.CommandUUID, report.ErrorChain)
@@ -477,4 +496,13 @@ func (h *AdminHandler) GetCommandHistory(w http.ResponseWriter, r *http.Request)
 	}
 
 	json.NewEncoder(w).Encode(commands)
+}
+
+// keys returns the keys of a map for logging
+func keys(m map[string]interface{}) []string {
+	result := make([]string, 0, len(m))
+	for k := range m {
+		result = append(result, k)
+	}
+	return result
 }

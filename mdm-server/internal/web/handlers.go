@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"mdm-server/internal/apns"
 	"mdm-server/internal/dep"
 	"mdm-server/internal/profile"
 	"mdm-server/internal/scep"
@@ -27,6 +28,7 @@ type Handler struct {
 	depClient    *dep.Client
 	scepHandler  *scep.Handler
 	profileGen   *profile.Generator
+	apnsPool     *apns.ClientPool
 	serverURL    string
 	jwtSecret    []byte
 	templates    *template.Template
@@ -39,6 +41,7 @@ type Config struct {
 	CommandStore *store.CommandStore
 	DEPClient    *dep.Client
 	SCEPHandler  *scep.Handler
+	APNsPool     *apns.ClientPool
 	ServerURL    string
 	JWTSecret    string
 }
@@ -52,6 +55,7 @@ func NewHandler(cfg Config) *Handler {
 		depClient:    cfg.DEPClient,
 		scepHandler:  cfg.SCEPHandler,
 		profileGen:   profile.NewGenerator(),
+		apnsPool:     cfg.APNsPool,
 		serverURL:    cfg.ServerURL,
 		jwtSecret:    []byte(cfg.JWTSecret),
 	}
@@ -292,6 +296,26 @@ func (h *Handler) handleTenantAPNs(w http.ResponseWriter, r *http.Request, tenan
 		return
 	}
 
+	// Read optional private key file
+	var keyData []byte
+	keyFile, _, keyErr := r.FormFile("key")
+	if keyErr == nil {
+		defer keyFile.Close()
+		keyData, err = io.ReadAll(keyFile)
+		if err != nil {
+			http.Error(w, "Failed to read key file", 500)
+			return
+		}
+		log.Printf("APNs: received separate private key file (%d bytes)", len(keyData))
+	} else {
+		// Check if cert PEM already contains a private key
+		if strings.Contains(string(certData), "PRIVATE KEY") {
+			log.Println("APNs: certificate file contains embedded private key")
+		} else {
+			log.Println("WARNING: No private key provided. APNs push will fail without a private key!")
+		}
+	}
+
 	topic := r.FormValue("topic")
 	if topic == "" {
 		http.Error(w, "APNs topic required", 400)
@@ -301,11 +325,17 @@ func (h *Handler) handleTenantAPNs(w http.ResponseWriter, r *http.Request, tenan
 	// Calculate expiry (TODO: parse from certificate)
 	expiresAt := time.Now().AddDate(1, 0, 0) // 1 year default
 
-	if err := h.tenantStore.UpdateAPNs(tenant.ID, certData, nil, topic, expiresAt); err != nil {
+	// Invalidate cached APNs client for this tenant so it reloads the new cert
+	if h.apnsPool != nil {
+		h.apnsPool.InvalidateClient(tenant.ID)
+	}
+
+	if err := h.tenantStore.UpdateAPNs(tenant.ID, certData, keyData, topic, expiresAt); err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
 
+	log.Printf("APNs certificate updated for tenant %s (cert: %d bytes, key: %d bytes)", tenant.ID, len(certData), len(keyData))
 	http.Redirect(w, r, "/admin/tenants/"+tenant.ID, http.StatusSeeOther)
 }
 
@@ -536,6 +566,19 @@ func (h *Handler) handleAPITenantOperations(w http.ResponseWriter, r *http.Reque
 				return
 			}
 
+			// Send APNs push to wake the device so it connects to fetch the command
+			if h.apnsPool != nil {
+				go func() {
+					if pushErr := h.apnsPool.SendPush(device.TenantID, device.PushToken, device.PushMagic); pushErr != nil {
+						log.Printf("Failed to send APNs push to device %s: %v", udid, pushErr)
+					} else {
+						log.Printf("APNs push sent to device %s for command %s", udid, cmdUUID)
+					}
+				}()
+			} else {
+				log.Printf("WARNING: APNs pool not configured, device %s won't be notified of pending command", udid)
+			}
+
 			w.WriteHeader(200)
 			fmt.Fprintf(w, `{"status":"ok","command_uuid":"%s"}`, cmdUUID)
 			return
@@ -652,6 +695,9 @@ input[type="text"], input[type="file"] { width: 100%; padding: 10px; margin-bott
 <label for="certificate">APNs Certificate (.pem file)</label>
 <input type="file" id="certificate" name="certificate" accept=".pem,.p12,.pfx" required>
 
+<label for="key">Private Key (.pem file) — required if cert and key are separate files</label>
+<input type="file" id="key" name="key" accept=".pem,.key">
+
 <label for="topic">APNs Topic</label>
 <input type="text" id="topic" name="topic" placeholder="com.apple.mgmt.External.XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX" value="{{.Tenant.APNsTopic}}" required>
 <div class="info-box">The topic is inside your APNs certificate. It starts with <code>com.apple.mgmt.External.</code></div>
@@ -689,6 +735,7 @@ input[type="text"], input[type="file"] { width: 100%; padding: 10px; margin-bott
   <button onclick="sendCommand('{{$.Tenant.ID}}', '{{.UDID}}', 'locate')" class="btn" style="padding: 6px 12px; font-size: 12px; margin: 2px;">📍 Locate</button>
   <button onclick="sendCommand('{{$.Tenant.ID}}', '{{.UDID}}', 'lock')" class="btn btn-secondary" style="padding: 6px 12px; font-size: 12px; margin: 2px;">🔒 Lock</button>
   <button onclick="if(confirm('Are you sure you want to WIPE this device?')) sendCommand('{{$.Tenant.ID}}', '{{.UDID}}', 'wipe')" class="btn" style="padding: 6px 12px; font-size: 12px; margin: 2px; background: #ff3b30;">🗑️ Wipe</button>
+  <button onclick="showHistory('{{.UDID}}')" class="btn btn-secondary" style="padding: 6px 12px; font-size: 12px; margin: 2px; background: #5856d6;">📜 History</button>
 </td>
 </tr>
 {{else}}
@@ -745,6 +792,75 @@ function deleteTenant(tenantId, tenantName) {
 }
 </script>
 </div>
+
+<!-- Command History Modal -->
+<dialog id="historyModal" style="border:none; border-radius:12px; padding:0; width:800px; max-width:90vw; box-shadow:0 10px 25px rgba(0,0,0,0.2);">
+  <div style="background:#f5f5f7; padding:15px 20px; border-bottom:1px solid #d2d2d7; display:flex; justify-content:space-between; align-items:center;">
+    <h3 style="margin:0;">Command History</h3>
+    <button onclick="document.getElementById('historyModal').close()" style="border:none; background:none; font-size:20px; cursor:pointer;">&times;</button>
+  </div>
+  <div style="padding:20px; max-height:70vh; overflow-y:auto;" id="historyContent">
+    Loading...
+  </div>
+</dialog>
+
+<script>
+function showHistory(udid) {
+  const modal = document.getElementById('historyModal');
+  const content = document.getElementById('historyContent');
+  modal.showModal();
+  content.innerHTML = '<p style="text-align:center; color:#666;">Loading history...</p>';
+
+  fetch('/api/devices/' + udid + '/commands')
+    .then(r => r.json())
+    .then(data => {
+      if (!data || data.length === 0) {
+        content.innerHTML = '<p style="text-align:center; color:#666;">No commands found.</p>';
+        return;
+      }
+
+      let html = '<table style="width:100%; border-collapse:collapse;"><thead><tr style="border-bottom:2px solid #eee; text-align:left;">';
+      html += '<th style="padding:10px;">Command</th><th style="padding:10px;">Status</th><th style="padding:10px;">Sent/Resp</th><th style="padding:10px;">Output</th></tr></thead><tbody>';
+
+      data.forEach(cmd => {
+        let statusColor = '#f0ad4e'; // Pending
+        if (cmd.status === 'acknowledged') statusColor = '#5cb85c';
+        else if (cmd.status === 'error') statusColor = '#d9534f';
+        else if (cmd.status === 'sent') statusColor = '#0275d8';
+
+        let output = '-';
+        if (cmd.response_data) {
+             if (cmd.request_type === 'DeviceInformation' && cmd.response_data.QueryResponses) {
+                // Format device info nicely
+                output = '<div style="font-size:11px; display:grid; grid-template-columns:auto 1fr; gap:2px 10px;">';
+                for (const [k, v] of Object.entries(cmd.response_data.QueryResponses)) {
+                    output += '<div style="font-weight:bold; color:#666;">' + k + ':</div><div>' + v + '</div>';
+                }
+                output += '</div>';
+            } else {
+                // Generic JSON viewer
+                output = '<details><summary style="cursor:pointer; color:#0071e3; font-size:12px;">View Data</summary><pre style="background:#f5f5f7; padding:8px; border-radius:6px; margin:5px 0; font-size:11px; overflow-x:auto;">' + JSON.stringify(cmd.response_data, null, 2) + '</pre></details>';
+            }
+        } else if (cmd.error_chain) {
+            output = '<details open><summary style="cursor:pointer; color:#d9534f; font-size:12px;">Error Details</summary><pre style="background:#fff0f0; color:#d9534f; padding:8px; border-radius:6px; margin:5px 0; font-size:11px; overflow-x:auto;">' + JSON.stringify(cmd.error_chain, null, 2) + '</pre></details>';
+        }
+
+        const date = cmd.responded_at ? new Date(cmd.responded_at).toLocaleString() : (cmd.sent_at ? new Date(cmd.sent_at).toLocaleString() : '-');
+
+        html += '<tr style="border-bottom:1px solid #eee;">' +
+            '<td style="padding:10px; font-weight:500;">' + cmd.request_type + '</td>' +
+            '<td style="padding:10px;"><span style="background:' + statusColor + '; color:white; padding:2px 8px; border-radius:10px; font-size:11px;">' + cmd.status + '</span></td>' +
+            '<td style="padding:10px; font-size:12px; color:#666;">' + date + '</td>' +
+            '<td style="padding:10px; font-size:12px;">' + output + '</td>' +
+        '</tr>';
+      });
+
+      html += '</tbody></table>';
+      content.innerHTML = html;
+    })
+    .catch(err => content.innerHTML = '<p style="color:red; text-align:center;">Failed to load history: ' + err + '</p>');
+}
+</script>
 </body></html>`,
 
 		"login": `<!DOCTYPE html>

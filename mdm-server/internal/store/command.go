@@ -22,17 +22,18 @@ const (
 
 // Command represents an MDM command in the queue
 type Command struct {
-	ID          string                   `json:"id"`
-	TenantID    string                   `json:"tenant_id"`
-	DeviceID    string                   `json:"device_id"`
-	CommandUUID string                   `json:"command_uuid"`
-	RequestType string                   `json:"request_type"`
-	Payload     map[string]interface{}   `json:"payload,omitempty"`
-	Status      CommandStatus            `json:"status"`
-	ErrorChain  []map[string]interface{} `json:"error_chain,omitempty"`
-	CreatedAt   time.Time                `json:"created_at"`
-	SentAt      *time.Time               `json:"sent_at,omitempty"`
-	RespondedAt *time.Time               `json:"responded_at,omitempty"`
+	ID           string                   `json:"id"`
+	TenantID     string                   `json:"tenant_id"`
+	DeviceID     string                   `json:"device_id"`
+	CommandUUID  string                   `json:"command_uuid"`
+	RequestType  string                   `json:"request_type"`
+	Payload      map[string]interface{}   `json:"payload,omitempty"`
+	Status       CommandStatus            `json:"status"`
+	ErrorChain   []map[string]interface{} `json:"error_chain,omitempty"`
+	ResponseData map[string]interface{}   `json:"response_data,omitempty"`
+	CreatedAt    time.Time                `json:"created_at"`
+	SentAt       *time.Time               `json:"sent_at,omitempty"`
+	RespondedAt  *time.Time               `json:"responded_at,omitempty"`
 }
 
 // CommandStore handles command database operations
@@ -132,11 +133,18 @@ func (s *CommandStore) MarkSent(commandUUID string) error {
 	return err
 }
 
-// MarkAcknowledged marks a command as acknowledged
-func (s *CommandStore) MarkAcknowledged(commandUUID string) error {
+// MarkAcknowledged marks a command as acknowledged with optional response data
+func (s *CommandStore) MarkAcknowledged(commandUUID string, responseData map[string]interface{}) error {
+	var responseJSON *string
+	if len(responseData) > 0 {
+		data, _ := json.Marshal(responseData)
+		s := string(data)
+		responseJSON = &s
+	}
+
 	_, err := s.db.Exec(`
-		UPDATE commands SET status = ?, responded_at = ? WHERE command_uuid = ?
-	`, CommandStatusAcknowledged, time.Now(), commandUUID)
+		UPDATE commands SET status = ?, responded_at = ?, response_data = ? WHERE command_uuid = ?
+	`, CommandStatusAcknowledged, time.Now(), responseJSON, commandUUID)
 
 	return err
 }
@@ -200,7 +208,8 @@ func (s *CommandStore) GetByUUID(commandUUID string) (*Command, error) {
 // ListByDevice returns all commands for a device
 func (s *CommandStore) ListByDevice(deviceID string, limit int) ([]*Command, error) {
 	rows, err := s.db.Query(`
-		SELECT id, tenant_id, device_id, command_uuid, request_type, status, created_at, sent_at, responded_at
+		SELECT id, tenant_id, device_id, command_uuid, request_type, status,
+		       error_chain_json, response_data, created_at, sent_at, responded_at
 		FROM commands WHERE device_id = ?
 		ORDER BY created_at DESC
 		LIMIT ?
@@ -214,14 +223,21 @@ func (s *CommandStore) ListByDevice(deviceID string, limit int) ([]*Command, err
 	for rows.Next() {
 		cmd := &Command{}
 		var sentAt, respondedAt sql.NullTime
+		var errorChainJSON, responseDataJSON sql.NullString
 
 		if err := rows.Scan(
 			&cmd.ID, &cmd.TenantID, &cmd.DeviceID, &cmd.CommandUUID, &cmd.RequestType,
-			&cmd.Status, &cmd.CreatedAt, &sentAt, &respondedAt,
+			&cmd.Status, &errorChainJSON, &responseDataJSON, &cmd.CreatedAt, &sentAt, &respondedAt,
 		); err != nil {
 			return nil, err
 		}
 
+		if errorChainJSON.Valid {
+			json.Unmarshal([]byte(errorChainJSON.String), &cmd.ErrorChain)
+		}
+		if responseDataJSON.Valid {
+			json.Unmarshal([]byte(responseDataJSON.String), &cmd.ResponseData)
+		}
 		if sentAt.Valid {
 			cmd.SentAt = &sentAt.Time
 		}
