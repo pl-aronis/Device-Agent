@@ -15,13 +15,18 @@ systemctl disable device-agent-linux
 # Remove immutability
 chattr -i $BINARY_FILE
 chattr -i $SERVICE_FILE
+chattr -i /usr/local/bin/device-agent-linux.sha256
 
 # Remove binary and backup
 rm -f $BINARY_FILE
 rm -rf $BACKUP_DIR
+rm -f /usr/local/bin/device-agent-linux.sha256 
 
 # Remove service
 rm -f $SERVICE_FILE
+
+# enable outbound traffic
+iptables -P OUTPUT ACCEPT
 
 # Output success message
 echo "Device Agent uninstalled successfully."
