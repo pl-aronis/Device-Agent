@@ -68,6 +68,7 @@ func Run(ip string, port string) {
 		if time.Since(lastSuccessfulHeartbeat) > MaxOfflineDuration {
 			log.Println("[FAIL-CLOSED] Backend unreachable for too long → locking device")
 			cacheLockCommand()
+			configureFirewall(ip)
 			enforcement.LockDevice()
 		}
 
