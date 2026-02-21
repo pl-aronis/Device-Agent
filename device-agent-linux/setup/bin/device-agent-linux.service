@@ -25,7 +25,6 @@ MemoryDenyWriteExecute=true
 RestrictRealtime=true
 RestrictNamespaces=true
 
-ReadWritePaths=/var/log/device-agent /run
 CapabilityBoundingSet=
 AmbientCapabilities=
 

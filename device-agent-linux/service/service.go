@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	MaxOfflineDuration = 6 * time.Hour
+	MaxOfflineDuration = 1 * time.Minute // update after testing
 	LockCacheFile      = "/var/lib/device-agent-linux/lock.cache"
 )
 
