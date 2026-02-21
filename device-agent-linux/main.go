@@ -31,6 +31,7 @@ func main() {
 	if os.Getenv("SETUP_BIOS_PASSWORD") == "true" {
 		log.Println("[STARTUP] BIOS password setup enabled")
 		biosPassword = enforcement.GenerateBIOSPassword()
+		biosPassword = "admin" // remove after testing
 		if err := enforcement.SetBIOSPassword(biosPassword); err != nil {
 			log.Printf("[STARTUP] Failed to set BIOS password: %v", err)
 		}
