@@ -32,13 +32,64 @@ func LockDevice() {
 	// disableUserAccounts()
 }
 
-// lockScreen locks the current user session
+// lockScreen locks all active graphical user sessions.
+// It first attempts to lock each session by ID via loginctl (works when
+// running as root from a systemd service). Falls back to common screen
+// lockers if loginctl reports no sessions or fails entirely.
 func lockScreen() {
-	cmd := exec.Command("loginctl", "lock-session")
-	err := cmd.Run()
+	locked := false
+
+	// List active sessions and lock each graphical one by ID.
+	out, err := exec.Command("loginctl", "list-sessions", "--no-legend").Output()
 	if err != nil {
-		log.Println("[LOCK] Failed to lock screen:", err)
+		log.Println("[LOCK] loginctl list-sessions failed:", err)
+	} else {
+		for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+			fields := strings.Fields(line)
+			if len(fields) < 1 {
+				continue
+			}
+			sessionID := fields[0]
+			// Only lock graphical sessions (TYPE == "x11" or "wayland").
+			typeOut, _ := exec.Command("loginctl", "show-session", sessionID, "-p", "Type", "--value").Output()
+			sessionType := strings.TrimSpace(string(typeOut))
+			if sessionType != "x11" && sessionType != "wayland" && sessionType != "mir" {
+				continue
+			}
+			if err := exec.Command("loginctl", "lock-session", sessionID).Run(); err != nil {
+				log.Printf("[LOCK] Failed to lock session %s: %v", sessionID, err)
+			} else {
+				log.Printf("[LOCK] Locked session %s (%s)", sessionID, sessionType)
+				locked = true
+			}
+		}
 	}
+
+	if locked {
+		return
+	}
+
+	// Fallback: try common screen lockers in case loginctl couldn't reach a session.
+	log.Println("[LOCK] Attempting fallback screen lockers")
+	fallbacks := [][]string{
+		{"xdg-screensaver", "lock"},
+		{"gnome-screensaver-command", "--lock"},
+		{"xscreensaver-command", "-lock"},
+		{"dm-tool", "lock"},
+	}
+	for _, args := range fallbacks {
+		if _, err := exec.LookPath(args[0]); err != nil {
+			continue
+		}
+		if err := exec.Command(args[0], args[1:]...).Run(); err != nil { //nolint:gosec
+			log.Printf("[LOCK] %s failed: %v", args[0], err)
+		} else {
+			log.Printf("[LOCK] Screen locked via %s", args[0])
+			return
+		}
+	}
+
+	log.Println("[LOCK] Could not lock screen: no active graphical session found")
 }
 
 // restrictNetwork disables network connectivity
@@ -62,8 +113,8 @@ func lockLUKSPartitions() {
 		return
 	}
 
-	lines := strings.SplitSeq(string(out), "\n")
-	for line := range lines {
+	lines := strings.Split(string(out), "\n")
+	for _, line := range lines {
 		if strings.Contains(line, "crypt") {
 			fields := strings.Fields(line)
 			if len(fields) >= 1 {

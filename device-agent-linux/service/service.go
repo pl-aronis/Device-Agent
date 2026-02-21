@@ -42,6 +42,7 @@ func Run(ip string, port string) {
 
 	for {
 		action := heartbeat.SendHeartbeat(ip, port)
+		log.Println("Heartbeat response: ", action)
 
 		switch action {
 		case "LOCK":

@@ -5,6 +5,7 @@ import (
 	"device-agent-linux/registration"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 )
 
@@ -31,8 +32,8 @@ func SendHeartbeat(ip string, port string) string {
 	)
 
 	if err != nil {
-		// Offline → do nothing now (grace logic later)
-		return "NONE"
+		log.Println("Heartbeat failed: ", err)
+		return ""
 	}
 	defer resp.Body.Close()
 
