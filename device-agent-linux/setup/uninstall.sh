@@ -9,7 +9,7 @@ BACKUP_DIR="/var/lib/.device-cache"
 systemctl daemon-reload
 
 # Signal to the agent that this is an intentional stop (no device lock)
-touch /var/lib/device-agent-linux/no-lock.flag
+mkdir -p /var/lib/device-agent-linux && touch /var/lib/device-agent-linux/no-lock.flag
 
 # Stop and disable the service
 systemctl stop device-agent-linux
