@@ -119,7 +119,7 @@ func Run(ctx context.Context, deviceId, ip, port string) {
 			log.Println("Policy warning → displaying alert")
 			// TODO
 			// enforcement.ShowWarning()
-		case "NONE":
+		case "ACTIVE":
 			lastSuccessfulHeartbeat = time.Now()
 		}
 
