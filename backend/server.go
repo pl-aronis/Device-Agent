@@ -30,6 +30,7 @@ func main() {
 	mux.HandleFunc("/admin/set", adminSetHandler(store))
 	mux.HandleFunc("/admin/status", adminStatusHandler(store))
 	mux.HandleFunc("/ping", func(w http.ResponseWriter, r *http.Request) {
+		log.Println("[BACKEND] Ping received")
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("pong"))
 	})
