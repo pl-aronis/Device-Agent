@@ -2,7 +2,9 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -47,6 +49,21 @@ func isSystemShuttingDown() bool {
 	return err == nil
 }
 
+// notifyBackendOffline pings the backend so it knows the agent process
+// is about to go down unexpectedly (i.e. not a planned stop).
+// A short timeout is used so this never blocks the actual lock.
+func notifyBackendOffline(ip, port string) {
+	url := fmt.Sprintf("http://%s:%s/ping", ip, port)
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get(url)
+	if err != nil {
+		log.Printf("[SERVICE] Failed to ping backend on exit: %v", err)
+		return
+	}
+	defer resp.Body.Close()
+	log.Printf("[SERVICE] Backend notified of agent exit (status %d)", resp.StatusCode)
+}
+
 // isIntentionalStop returns true when an operator has explicitly
 // signalled that this process stop should not lock the device.
 // The sentinel file is consumed (removed) so it cannot be reused.
@@ -54,7 +71,9 @@ func isIntentionalStop() bool {
 	if _, err := os.Stat(NoLockFile); err != nil {
 		return false
 	}
-	os.Remove(NoLockFile)
+	if err := os.Remove(NoLockFile); err != nil {
+		log.Printf("[SERVICE] Failed to remove no-lock file: %v", err)
+	}
 	return true
 }
 
@@ -93,6 +112,7 @@ func Run(ctx context.Context, deviceId, ip, port string) {
 			return
 		}
 		log.Println("[SERVICE] Process exiting — locking device via defer")
+		notifyBackendOffline(ip, port)
 		enforcement.LockDevice(ip)
 	}()
 
