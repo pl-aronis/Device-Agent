@@ -62,45 +62,8 @@ func GetOSDetails() string {
 	return strings.TrimSpace(string(out))
 }
 
-// LoadDeviceInfo loads device info from local storage
-func LoadDeviceInfo() (*DeviceInfo, error) {
-	data, err := os.ReadFile(DeviceInfoFile)
-	if err != nil {
-		return nil, err
-	}
-
-	var info DeviceInfo
-	if err := json.Unmarshal(data, &info); err != nil {
-		return nil, err
-	}
-
-	return &info, nil
-}
-
-// SaveDeviceInfo saves device info to local storage
-func SaveDeviceInfo(info *DeviceInfo) error {
-	// Ensure directory exists
-	dir := "/var/lib/device-agent-linux"
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return fmt.Errorf("failed to create directory: %v", err)
-	}
-
-	data, err := json.MarshalIndent(info, "", "  ")
-	if err != nil {
-		return err
-	}
-
-	return os.WriteFile(DeviceInfoFile, data, 0600)
-}
-
 // RegisterDevice registers the device with the backend
 func RegisterDevice(ip, port, biosPassword string) (*DeviceInfo, error) {
-	// Check if already registered
-	if info, err := LoadDeviceInfo(); err == nil {
-		log.Printf("[REGISTRATION] Device already registered: %s", info.DeviceID)
-		return info, nil
-	}
-
 	log.Println("[REGISTRATION] Registering device with backend...")
 
 	// Gather device information
@@ -153,23 +116,8 @@ func RegisterDevice(ip, port, biosPassword string) (*DeviceInfo, error) {
 		BIOSPass:    biosPassword,
 	}
 
-	if err := SaveDeviceInfo(deviceInfo); err != nil {
-		return nil, fmt.Errorf("failed to save device info: %v", err)
-	}
-
 	log.Printf("[REGISTRATION] Device registered successfully: %s", deviceInfo.DeviceID)
 	log.Printf("[REGISTRATION] Recovery Key: %s", deviceInfo.RecoveryKey)
 
 	return deviceInfo, nil
-}
-
-// GetDeviceID returns the device ID (loads from file or returns hostname)
-func GetDeviceID() string {
-	if info, err := LoadDeviceInfo(); err == nil {
-		return info.DeviceID
-	}
-
-	// Fallback to hostname
-	hostname, _ := os.Hostname()
-	return hostname
 }

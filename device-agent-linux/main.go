@@ -74,5 +74,5 @@ func main() {
 	log.Println("========================================")
 
 	// Start the main service loop
-	service.Run(context.Background(), ip, port)
+	service.Run(context.Background(), deviceInfo.DeviceID, ip, port)
 }

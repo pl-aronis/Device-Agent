@@ -61,7 +61,7 @@ func isIntentionalStop() bool {
 // Run starts the heartbeat loop. It accepts a context so the caller
 // can cancel it externally. A deferred LockDevice call fires when the
 // process is killed, unless a system shutdown/reboot is in progress.
-func Run(ctx context.Context, ip string, port string) {
+func Run(ctx context.Context, deviceId, ip, port string) {
 	// Capture SIGINT and SIGTERM so the defer below can execute.
 	// Without this, the runtime would exit immediately on signal and
 	// defer would NOT run.
@@ -107,7 +107,7 @@ func Run(ctx context.Context, ip string, port string) {
 		default:
 		}
 
-		action := heartbeat.SendHeartbeat(ip, port)
+		action := heartbeat.SendHeartbeat(deviceId, ip, port)
 		log.Println("Heartbeat response: ", action)
 
 		switch action {

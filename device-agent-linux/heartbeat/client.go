@@ -2,11 +2,11 @@ package heartbeat
 
 import (
 	"bytes"
-	"device-agent-linux/registration"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 )
 
 type Heartbeat struct {
@@ -17,12 +17,14 @@ type Response struct {
 	Action string `json:"action"`
 }
 
-func SendHeartbeat(ip string, port string) string {
-	// Use registered device ID
-	deviceID := registration.GetDeviceID()
+func SendHeartbeat(deviceId, ip, port string) string {
+	if deviceId == "" {
+		hostname, _ := os.Hostname()
+		deviceId = hostname
+	}
 
 	body, _ := json.Marshal(Heartbeat{
-		DeviceID: deviceID,
+		DeviceID: deviceId,
 	})
 
 	resp, err := http.Post(
