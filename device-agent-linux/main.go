@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"device-agent-linux/credentials"
 	"device-agent-linux/enforcement"
 	"device-agent-linux/registration"
@@ -73,5 +74,5 @@ func main() {
 	log.Println("========================================")
 
 	// Start the main service loop
-	service.Run(ip, port)
+	service.Run(context.Background(), ip, port)
 }

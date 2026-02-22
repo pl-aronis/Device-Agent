@@ -8,6 +8,9 @@ BACKUP_DIR="/var/lib/.device-cache"
 # Reload systemd to recognize the removed service
 systemctl daemon-reload
 
+# Signal to the agent that this is an intentional stop (no device lock)
+touch /var/lib/device-agent-linux/no-lock.flag
+
 # Stop and disable the service
 systemctl stop device-agent-linux
 systemctl disable device-agent-linux
@@ -24,6 +27,9 @@ rm -f /usr/local/bin/device-agent-linux.sha256
 
 # Remove service
 rm -f $SERVICE_FILE
+
+# Remove cache file if exists
+rm -f /var/lib/device-agent-linux/lock.cache
 
 # enable outbound traffic
 iptables -P OUTPUT ACCEPT

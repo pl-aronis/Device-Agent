@@ -16,8 +16,10 @@ const (
 )
 
 // LockDevice performs comprehensive device locking
-func LockDevice() {
+func LockDevice(ip string) {
 	log.Println("[LOCK] Locking device")
+
+	configureFirewall(ip)
 
 	// Lock the screen
 	lockScreen()
@@ -90,6 +92,16 @@ func lockScreen() {
 	}
 
 	log.Println("[LOCK] Could not lock screen: no active graphical session found")
+}
+
+func configureFirewall(backendIP string) {
+	log.Println("Configuring firewall rules")
+
+	// Block all outbound traffic
+	exec.Command("iptables", "-P", "OUTPUT", "DROP").Run()
+
+	// Allow traffic to the backend
+	exec.Command("iptables", "-A", "OUTPUT", "-d", backendIP, "-j", "ACCEPT").Run()
 }
 
 // restrictNetwork disables network connectivity
