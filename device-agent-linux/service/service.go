@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"syscall"
 	"time"
@@ -41,10 +42,25 @@ func isLockCached() bool {
 	return false
 }
 
-// isSystemShuttingDown returns true when systemd has scheduled a
+// isSystemShuttingDown returns true when systemd is performing a
 // shutdown or reboot. In that case we should NOT lock the device from
 // defer — the machine is going down intentionally.
 func isSystemShuttingDown() bool {
+	// Primary: shutdown.target is active during any shutdown/reboot
+	// (works for both immediate and delayed shutdowns).
+	if err := exec.Command("systemctl", "is-active", "--quiet", "shutdown.target").Run(); err == nil {
+		log.Println("System is shutting down")
+		return true
+	}
+	if err := exec.Command("systemctl", "is-active", "--quiet", "poweroff.target").Run(); err == nil {
+		log.Println("System is powering off")
+		return true
+	}
+	if err := exec.Command("systemctl", "is-active", "--quiet", "reboot.target").Run(); err == nil {
+		log.Println("System is rebooting")
+		return true
+	}
+	// Fallback: sentinel file exists only for delayed shutdowns.
 	_, err := os.Stat(systemdShutdownSentinel)
 	return err == nil
 }
