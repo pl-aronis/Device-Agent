@@ -34,20 +34,13 @@ type HeartbeatResponse struct {
 	Action string `json:"action"`
 }
 
-type RecoveryKeyUpdateRequest struct {
-	DeviceID    string `json:"device_id"`
-	ProtectorID string `json:"protector_id"`
-	RecoveryKey string `json:"recovery_key"`
-}
-
 type RecoveryProtector struct {
 	ID  string
 	Key string
 }
 
 const (
-	RegisterEndpoint    = "/api/register"
-	HeartbeatEndpoint   = "/api/heartbeat"
-	RecoveryKeyEndpoint = "/api/recovery-key"
-	ManageBDE           = `C:\Windows\Sysnative\manage-bde.exe`
+	RegisterEndpoint  = "/api/register"
+	HeartbeatEndpoint = "/api/heartbeat"
+	ManageBDE         = `C:\Windows\Sysnative\manage-bde.exe`
 )

@@ -4,7 +4,6 @@ import (
 	"device-agent-windows/internal/helper"
 	"device-agent-windows/internal/model"
 	"errors"
-	"fmt"
 	"log"
 	"strings"
 	"time"
@@ -32,7 +31,7 @@ func tryEnableProtection() bool {
 }
 
 func forceRecoveryAndReboot() error {
-	log.Println("[SUCCESS] Protection ON - forcing recovery")
+	log.Println("[SUCCESS] Protection ON — forcing recovery")
 	_, err := helper.RunCommand(model.ManageBDE, "-forcerecovery", "C:")
 	if err != nil {
 		log.Println("[ERROR] Failed to force recovery:", err)
@@ -47,62 +46,3 @@ func forceRecoveryAndReboot() error {
 	return nil
 }
 
-func enableProtection() error {
-	if tryEnableProtection() {
-		return nil
-	}
-	return errors.New("failed to enable BitLocker protection")
-}
-
-func EnforceDeviceLock() error {
-	if _, err := EnforceDeviceLockWithRecovery(); err != nil {
-		return err
-	}
-	return ForceRecoveryAndReboot()
-}
-
-func EnforceDeviceLockWithRecovery() (*model.RecoveryProtector, error) {
-	if !isBitLockerCLIExecutable() {
-		return nil, errors.New("BitLocker CLI is not available")
-	}
-
-	if !isEncrypted() {
-		log.Println("[INFO] Enabling BitLocker encryption")
-		if err := enableEncryption(); err != nil {
-			return nil, fmt.Errorf("failed to enable BitLocker encryption: %w", err)
-		}
-	}
-
-	recovery, err := createRecoveryProtector()
-	if err != nil {
-		return nil, fmt.Errorf("failed to create recovery protector: %w", err)
-	}
-
-	if err := enableProtection(); err != nil {
-		return nil, err
-	}
-	return recovery, nil
-}
-
-func ForceRecoveryAndReboot() error {
-	if err := forceRecoveryAndReboot(); err != nil {
-		return fmt.Errorf("failed to force recovery and reboot: %w", err)
-	}
-	return nil
-}
-
-func ReleaseDeviceLock(managedProtectorID string) error {
-	_, err := helper.RunCommand(model.ManageBDE, "-protectors", "-disable", "C:")
-	if err != nil {
-		return fmt.Errorf("failed to disable BitLocker protection: %w", err)
-	}
-
-	if managedProtectorID == "" {
-		return nil
-	}
-
-	if err := deleteProtector(managedProtectorID); err != nil {
-		return err
-	}
-	return nil
-}

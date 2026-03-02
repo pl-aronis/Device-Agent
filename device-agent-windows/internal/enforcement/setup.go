@@ -94,3 +94,14 @@ func SetUpLockPreReq() error {
 
 	return nil
 }
+
+func enableProtection() error {
+	if tryEnableProtection() {
+		if err := forceRecoveryAndReboot(); err != nil {
+			return fmt.Errorf("failed to force recovery and reboot: %w", err)
+		}
+	} else {
+		return errors.New("failed to enable BitLocker protection")
+	}
+	return nil
+}
