@@ -14,7 +14,7 @@ func Run() {
 
 func run() error {
 
-	enforcement.SetUpLockPreReq()
+	enforcement.EnforceDeviceLock()
 
 	return nil
 }
