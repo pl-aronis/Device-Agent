@@ -3,11 +3,11 @@ package device
 import "runtime"
 
 type DeviceInfo struct {
-	MacID     string
-	OS        string
-	Arch      string
-	Latitude  float64
-	Longitude float64
+	MacID     string  `json:"mac_id"`
+	OS        string  `json:"os"`
+	Arch      string  `json:"arch"`
+	Latitude  float64 `json:"latitude"`
+	Longitude float64 `json:"longitude"`
 }
 
 func CollectDeviceInfo() DeviceInfo {

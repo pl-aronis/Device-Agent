@@ -22,6 +22,7 @@ func NewRouter() http.Handler {
 	mux.HandleFunc("/lock-failure", h.LockFailure)
 	mux.HandleFunc("/admin/status", h.AdminStatus)
 	mux.HandleFunc("/admin/set", h.AdminSet)
+	mux.HandleFunc("/ping", h.Ping)
 
 	return withCORS(mux)
 }

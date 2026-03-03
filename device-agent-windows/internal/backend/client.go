@@ -59,17 +59,23 @@ func (c *Client) Heartbeat(mac string, loc device.Location) (*HeartbeatResponse,
 	return &r, nil
 }
 
-func (c *Client) SendLockSuccess(mac, key, id string) {
-	json.Marshal(map[string]string{
+func (c *Client) SendLockSuccess(mac, key, id string) error {
+	body, _ := json.Marshal(map[string]string{
 		"mac_id": mac,
 		"key":    key,
 		"id":     id,
 	})
+
+	_, err := http.Post(c.baseURL+"/lock-success", "application/json", bytes.NewBuffer(body))
+	return err
 }
 
-func (c *Client) SendLockFailure(mac, reason string) {
-	json.Marshal(map[string]string{
+func (c *Client) SendLockFailure(mac, reason string) error {
+	body, _ := json.Marshal(map[string]string{
 		"mac_id": mac,
 		"error":  reason,
 	})
+
+	_, err := http.Post(c.baseURL+"/lock-failure", "application/json", bytes.NewBuffer(body))
+	return err
 }
