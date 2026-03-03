@@ -8,7 +8,7 @@ function App() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
 
-  const API_BASE = 'http://localhost:8080'
+  const API_BASE = import.meta.env.VITE_API_BASE || ''
 
   const fetchDevices = async () => {
     setLoading(true)

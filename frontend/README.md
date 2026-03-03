@@ -25,7 +25,8 @@ npm install
 npm run dev
 ```
 
-The app will start at `http://localhost:5173` and proxy API calls to `http://localhost:8080`
+The app will start at `http://localhost:5173` and proxy API calls to `http://localhost:8080`.
+You can override with `VITE_API_BASE` (for example `http://localhost:8080` in production).
 
 ### Build for Production
 
@@ -58,7 +59,7 @@ The frontend communicates with the backend at `http://localhost:8080`:
 ### Endpoints Used
 
 - `GET /admin/status` - Fetch all devices
-- `GET /admin/set?id=<device_id>&status=<ACTIVE|LOCK>` - Lock or unlock device
+- `GET /admin/set?id=<agent_id>&status=<ACTIVE|LOCK>` - Lock or unlock device
 
 ## Features Overview
 
